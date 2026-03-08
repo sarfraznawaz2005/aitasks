@@ -1,0 +1,14 @@
+# Source
+src/
+tests/
+
+# Config
+tsconfig.json
+bun.lock
+
+# Dev artifacts
+**/*.map
+
+# Misc
+.gitignore
+.npmignore
