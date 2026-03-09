@@ -315,10 +315,16 @@ function wrapText(text: string, maxW: number): string[] {
 
 // ─── Main live tree board ─────────────────────────────────────────────────────
 
+type LeftRow =
+  | { kind: 'spacer' }
+  | { kind: 'section'; section: 'in_progress' | 'done'; count: number; total?: number }
+  | { kind: 'item'; item: TreeItem; itemIdx: number };
+
 const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) => {
   const [tasks,        setTasks]        = useState<Task[]>(() => getTasks());
   const [selectedIdx,  setSelectedIdx]  = useState(0);
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const [scrollOffset,     setScrollOffset]     = useState(0);
+  const [leftScrollOffset, setLeftScrollOffset] = useState(0);
   const { exit }   = useApp();
   const { stdout } = useStdout();
 
@@ -330,8 +336,44 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const items     = useMemo(() => buildTree(tasks), [tasks]);
   const clampIdx  = Math.min(selectedIdx, Math.max(0, items.length - 1));
 
-  // Reset scroll when task changes
+  const leftRows  = useMemo((): LeftRow[] => {
+    const ipCnt   = items.filter(i => i.section === 'in_progress').length;
+    const ipTotal = items.filter(i => i.section === 'in_progress' || i.section === 'middle').length;
+    const doneCnt = items.filter(i => i.section === 'done').length;
+    const result: LeftRow[] = [];
+    let firstSection = true;
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx]!;
+      if (item.showSectionHeader && item.section !== 'middle') {
+        if (!firstSection) result.push({ kind: 'spacer' });
+        result.push({
+          kind: 'section',
+          section: item.section as 'in_progress' | 'done',
+          count: item.section === 'in_progress' ? ipCnt : doneCnt,
+          total: item.section === 'in_progress' ? ipTotal : undefined,
+        });
+        firstSection = false;
+      }
+      result.push({ kind: 'item', item, itemIdx: idx });
+    }
+    return result;
+  }, [items]);
+
+  const selectedRowIdx = leftRows.findIndex(r => r.kind === 'item' && r.itemIdx === clampIdx);
+
+  // Reset right-pane scroll when task changes
   useEffect(() => { setScrollOffset(0); }, [clampIdx]);
+
+  // Auto-scroll left pane to keep selected item visible
+  useEffect(() => {
+    if (selectedRowIdx < 0) return;
+    const visH = Math.max(1, (stdout.rows ?? 30) - 4);
+    setLeftScrollOffset(o => {
+      if (selectedRowIdx < o) return selectedRowIdx;
+      if (selectedRowIdx >= o + visH) return selectedRowIdx - visH + 1;
+      return o;
+    });
+  }, [selectedRowIdx, stdout]);
 
   useInput((input, key) => {
     if (input === 'q' || key.escape) exit();
@@ -405,17 +447,31 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     };
   }, []); // empty deps — mount/unmount only
 
-  const ipCount      = items.filter(i => i.section === 'in_progress').length;
-  const ipTotalCount = items.filter(i => i.section === 'in_progress' || i.section === 'middle').length;
-  const doneCount    = items.filter(i => i.section === 'done').length;
-
   // Inner widths (border consumes 2 chars each side)
   const leftInner  = leftWidth - 2;
   const rightInner = rightWidth - 2;
 
+  // Left pane scroll
+  const leftVisibleH    = Math.max(1, rows - 4); // rows - 2 (border) - 1 (header) - 1 (divider)
+  const leftTotalRows   = leftRows.length;
+  const leftMaxOffset   = Math.max(0, leftTotalRows - leftVisibleH);
+  const leftOffset      = Math.min(leftScrollOffset, leftMaxOffset);
+  const visibleLeftRows = leftRows.slice(leftOffset, leftOffset + leftVisibleH);
+  const leftScrollbar   = (() => {
+    const bar = Array<string>(leftVisibleH).fill(' ');
+    if (leftTotalRows > leftVisibleH) {
+      const thumbH   = Math.max(1, Math.floor((leftVisibleH / leftTotalRows) * leftVisibleH));
+      const thumbPos = leftMaxOffset > 0 ? Math.floor((leftOffset / leftMaxOffset) * (leftVisibleH - thumbH)) : 0;
+      for (let i = 0; i < leftVisibleH; i++) {
+        bar[i] = i >= thumbPos && i < thumbPos + thumbH ? '█' : '░';
+      }
+    }
+    return bar;
+  })();
+
   return (
     <Box flexDirection="column" width={cols}>
-      <Box width={cols}>
+      <Box width={cols} height={rows}>
 
         {/* ── Left pane ── */}
         <Box
@@ -434,19 +490,35 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           <Text dimColor>{'─'.repeat(leftInner)}</Text>
 
           {/* Tree items */}
-          {items.map((item, idx) => (
-            <React.Fragment key={item.task.id}>
-              {item.showSectionHeader && item.section !== 'middle' && (
-                <SectionDivider
-                  section={item.section}
-                  count={item.section === 'in_progress' ? ipCount : doneCount}
-                  total={item.section === 'in_progress' ? ipTotalCount : undefined}
-                  isFirst={idx === 0}
-                />
-              )}
-              <TreeRow item={item} isSelected={idx === clampIdx} paneWidth={leftInner} />
-            </React.Fragment>
-          ))}
+          {visibleLeftRows.map((row, i) => {
+            const sb = <Box width={1}><Text dimColor>{leftScrollbar[i]}</Text></Box>;
+            if (row.kind === 'spacer') {
+              return <Box key={`sp-${leftOffset + i}`}><Box flexGrow={1}><Text> </Text></Box>{sb}</Box>;
+            }
+            if (row.kind === 'section') {
+              const color = row.section === 'in_progress' ? 'yellow' : 'green';
+              const label = row.section === 'in_progress' ? 'IN PROGRESS' : 'DONE';
+              const cnt   = row.total !== undefined && row.total !== row.count
+                ? `${row.count} of ${row.total}` : `${row.count}`;
+              return (
+                <Box key={`sec-${row.section}`}>
+                  <Box flexGrow={1} paddingLeft={1}>
+                    <Text color={color} bold>{label}</Text>
+                    <Text color="#AAAAAA">  ({cnt})</Text>
+                  </Box>
+                  {sb}
+                </Box>
+              );
+            }
+            return (
+              <Box key={row.item.task.id}>
+                <Box flexGrow={1}>
+                  <TreeRow item={row.item} isSelected={row.itemIdx === clampIdx} paneWidth={leftInner - 1} />
+                </Box>
+                {sb}
+              </Box>
+            );
+          })}
         </Box>
 
         {/* ── Right pane ── */}
