@@ -101,7 +101,7 @@ const TreeRow: React.FC<{ item: TreeItem; isSelected: boolean; paneWidth: number
   const treeStr = indent === 0 ? '' : (isLastSibling ? '  └─ ' : '  ├─ ');
   // sel(2) + tree(0 or 5) + id(9) + sp(1) + pri(1) + sp(1) + icon(1) + sp(1) = 16 or 21
   const fixedW     = 2 + treeStr.length + 9 + 1 + 1 + 1 + 1 + 1;
-  const titleWidth = Math.max(4, paneWidth - fixedW);
+  const titleWidth = Math.max(4, paneWidth - fixedW - 1);
 
   return (
     <Box>
@@ -124,13 +124,14 @@ const TreeRow: React.FC<{ item: TreeItem; isSelected: boolean; paneWidth: number
 
 // ─── Left pane: section header ────────────────────────────────────────────────
 
-const SectionDivider: React.FC<{ section: 'in_progress' | 'done'; count: number; isFirst: boolean }> = ({ section, count, isFirst }) => {
+const SectionDivider: React.FC<{ section: 'in_progress' | 'done'; count: number; total?: number; isFirst: boolean }> = ({ section, count, total, isFirst }) => {
   const color = section === 'in_progress' ? 'yellow' : 'green';
   const label = section === 'in_progress' ? 'IN PROGRESS' : 'DONE';
+  const countLabel = total !== undefined && total !== count ? `${count} of ${total}` : `${count}`;
   return (
     <Box marginTop={isFirst ? 0 : 1} paddingLeft={1}>
       <Text color={color} bold>{label}</Text>
-      <Text color="#AAAAAA">  ({count})</Text>
+      <Text color="#AAAAAA">  ({countLabel})</Text>
     </Box>
   );
 };
@@ -251,22 +252,14 @@ const RightPane: React.FC<{ task: Task | undefined; width: number; height: numbe
     return { lines, contentW: cw };
   }, [task, width]);
 
-  if (!task) {
-    return (
-      <Box paddingLeft={2} paddingTop={2}>
-        <Text dimColor>Select a task with ↑↓</Text>
-      </Box>
-    );
-  }
-
-  // Fast path: just slice the memoized lines
+  // Compute these before the second useMemo so hook count is always consistent
   const totalLines   = lines.length;
   const visibleH     = Math.max(3, height - 2);
   const maxOffset    = Math.max(0, totalLines - visibleH);
   const offset       = Math.min(scrollOffset, maxOffset);
   const visibleLines = lines.slice(offset, offset + visibleH);
 
-  // Build scrollbar
+  // Build scrollbar — must be called unconditionally (Rules of Hooks)
   const scrollbar = useMemo(() => {
     if (totalLines <= visibleH) return Array(visibleH).fill(' ');
     const ratio    = visibleH / totalLines;
@@ -278,6 +271,14 @@ const RightPane: React.FC<{ task: Task | undefined; width: number; height: numbe
     }
     return bar;
   }, [totalLines, visibleH, offset, maxOffset]);
+
+  if (!task) {
+    return (
+      <Box paddingLeft={2} paddingTop={2}>
+        <Text dimColor>Select a task with ↑↓</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" paddingTop={1}>
@@ -404,8 +405,9 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     };
   }, []); // empty deps — mount/unmount only
 
-  const ipCount   = items.filter(i => i.section === 'in_progress').length;
-  const doneCount = items.filter(i => i.section === 'done').length;
+  const ipCount      = items.filter(i => i.section === 'in_progress').length;
+  const ipTotalCount = items.filter(i => i.section === 'in_progress' || i.section === 'middle').length;
+  const doneCount    = items.filter(i => i.section === 'done').length;
 
   // Inner widths (border consumes 2 chars each side)
   const leftInner  = leftWidth - 2;
@@ -438,6 +440,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
                 <SectionDivider
                   section={item.section}
                   count={item.section === 'in_progress' ? ipCount : doneCount}
+                  total={item.section === 'in_progress' ? ipTotalCount : undefined}
                   isFirst={idx === 0}
                 />
               )}

@@ -69,7 +69,7 @@ describe('aitasks init', () => {
 describe('aitasks create', () => {
   test('creates a task via flags', () => {
     const result = runCli(
-      ['create', '--title', 'My first task', '--priority', 'high', '--type', 'bug'],
+      ['create', '--title', 'My first task', '--desc', 'Task description', '--ac', 'Criterion', '--priority', 'high', '--type', 'bug'],
       { cwd: projectDir }
     );
     expect(result.exitCode).toBe(0);
@@ -79,7 +79,7 @@ describe('aitasks create', () => {
 
   test('creates task with acceptance criteria', () => {
     const result = runCli(
-      ['create', '--title', 'With AC', '--ac', 'Returns 200', '--ac', 'Has body'],
+      ['create', '--title', 'With AC', '--desc', 'Task description', '--ac', 'Returns 200', '--ac', 'Has body'],
       { cwd: projectDir }
     );
     expect(result.exitCode).toBe(0);
@@ -88,7 +88,7 @@ describe('aitasks create', () => {
 
   test('returns JSON when AITASKS_JSON=true', () => {
     const result = runCli(
-      ['create', '--title', 'JSON task'],
+      ['create', '--title', 'JSON task', '--desc', 'Task description', '--ac', 'Criterion'],
       { cwd: projectDir, env: { AITASKS_JSON: 'true' } }
     );
     expect(result.exitCode).toBe(0);
@@ -99,9 +99,9 @@ describe('aitasks create', () => {
   });
 
   test('assigns sequential IDs across calls', () => {
-    runCli(['create', '--title', 'First'], { cwd: projectDir });
+    runCli(['create', '--title', 'First', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(
-      ['create', '--title', 'Second'],
+      ['create', '--title', 'Second', '--desc', 'Task description', '--ac', 'AC'],
       { cwd: projectDir, env: { AITASKS_JSON: 'true' } }
     );
     const parsed = JSON.parse(result.stdout);
@@ -119,20 +119,20 @@ describe('aitasks list', () => {
   });
 
   test('shows created tasks', () => {
-    runCli(['create', '--title', 'List me'], { cwd: projectDir });
+    runCli(['create', '--title', 'List me', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['list'], { cwd: projectDir });
     expect(result.stdout).toContain('TASK-001');
     expect(result.stdout).toContain('List me');
   });
 
   test('filters by status with --status flag', () => {
-    runCli(['create', '--title', 'T1'], { cwd: projectDir });
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['list', '--status', 'done'], { cwd: projectDir });
     expect(result.stdout).toContain('No tasks');
   });
 
   test('outputs valid JSON when AITASKS_JSON=true', () => {
-    runCli(['create', '--title', 'JSON list task'], { cwd: projectDir });
+    runCli(['create', '--title', 'JSON list task', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['list'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
     const parsed = JSON.parse(result.stdout);
     expect(parsed.success).toBe(true);
@@ -141,7 +141,7 @@ describe('aitasks list', () => {
   });
 
   test('shows task stats with --stats', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['list', '--stats'], { cwd: projectDir });
     expect(result.stdout).toContain('Total');
   });
@@ -151,7 +151,7 @@ describe('aitasks list', () => {
 
 describe('aitasks show', () => {
   test('shows task details', () => {
-    runCli(['create', '--title', 'Show me', '--desc', 'Full details'], { cwd: projectDir });
+    runCli(['create', '--title', 'Show me', '--desc', 'Full details', '--ac', 'Criterion'], { cwd: projectDir });
     const result = runCli(['show', 'TASK-001'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('TASK-001');
@@ -165,7 +165,7 @@ describe('aitasks show', () => {
   });
 
   test('shows acceptance criteria', () => {
-    runCli(['create', '--title', 'T', '--ac', 'Returns 404', '--ac', 'Has JSON body'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'Returns 404', '--ac', 'Has JSON body'], { cwd: projectDir });
     const result = runCli(['show', 'TASK-001'], { cwd: projectDir });
     expect(result.stdout).toContain('Returns 404');
     expect(result.stdout).toContain('Has JSON body');
@@ -176,14 +176,14 @@ describe('aitasks show', () => {
 
 describe('aitasks claim + start + note', () => {
   test('claim marks task as ready with agent assigned', () => {
-    runCli(['create', '--title', 'Claimable'], { cwd: projectDir });
+    runCli(['create', '--title', 'Claimable', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['claim', 'TASK-001', '--agent', 'test-agent'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Claimed');
   });
 
   test('start transitions task to in_progress', () => {
-    runCli(['create', '--title', 'Startable'], { cwd: projectDir });
+    runCli(['create', '--title', 'Startable', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
@@ -191,7 +191,7 @@ describe('aitasks claim + start + note', () => {
   });
 
   test('note adds an implementation note', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(
       ['note', 'TASK-001', 'Used bcrypt for hashing', '--agent', 'agent-a'],
@@ -204,8 +204,8 @@ describe('aitasks claim + start + note', () => {
   });
 
   test('claim fails on blocked task', () => {
-    runCli(['create', '--title', 'Blocker'], { cwd: projectDir });
-    runCli(['create', '--title', 'Blocked'], { cwd: projectDir });
+    runCli(['create', '--title', 'Blocker', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Blocked', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
     const result = runCli(['claim', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).not.toBe(0);
@@ -213,7 +213,7 @@ describe('aitasks claim + start + note', () => {
   });
 
   test('AITASKS_AGENT_ID env var is used when --agent is omitted', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['claim', 'TASK-001'], {
       cwd: projectDir,
       env: { AITASKS_AGENT_ID: 'env-agent' },
@@ -227,7 +227,7 @@ describe('aitasks claim + start + note', () => {
 
 describe('aitasks check + done', () => {
   test('done fails when criteria are not checked', () => {
-    runCli(['create', '--title', 'T', '--ac', 'AC1', '--ac', 'AC2'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC1', '--ac', 'AC2'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).not.toBe(0);
@@ -235,7 +235,7 @@ describe('aitasks check + done', () => {
   });
 
   test('done succeeds when all criteria are verified', () => {
-    runCli(['create', '--title', 'T', '--ac', 'AC1'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC1'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
@@ -243,18 +243,21 @@ describe('aitasks check + done', () => {
     expect(result.stdout).toContain('DONE');
   });
 
-  test('done with no criteria succeeds immediately', () => {
-    runCli(['create', '--title', 'No AC task'], { cwd: projectDir });
+  test('done succeeds when all criteria are checked', () => {
+    runCli(['create', '--title', 'Multi AC task', '--desc', 'Task description', '--ac', 'AC1', '--ac', 'AC2'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof-0', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '1', '--evidence', 'proof-1', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
   });
 
   test('done auto-unblocks dependent tasks', () => {
-    runCli(['create', '--title', 'Blocker'], { cwd: projectDir });
-    runCli(['create', '--title', 'Dependent'], { cwd: projectDir });
+    runCli(['create', '--title', 'Blocker', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Dependent', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
     const done = runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     expect(done.stdout).toContain('TASK-002'); // mentioned in auto-unblock message
 
@@ -264,7 +267,7 @@ describe('aitasks check + done', () => {
   });
 
   test('check requires --evidence flag', () => {
-    runCli(['create', '--title', 'T', '--ac', 'AC1'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC1'], { cwd: projectDir });
     const result = runCli(['check', 'TASK-001', '0', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).not.toBe(0);
   });
@@ -274,8 +277,8 @@ describe('aitasks check + done', () => {
 
 describe('aitasks block + unblock', () => {
   test('block sets task to blocked status', () => {
-    runCli(['create', '--title', 'B1'], { cwd: projectDir });
-    runCli(['create', '--title', 'B2'], { cwd: projectDir });
+    runCli(['create', '--title', 'B1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'B2', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
     const result = runCli(['show', 'TASK-002'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
     const parsed = JSON.parse(result.stdout);
@@ -283,8 +286,8 @@ describe('aitasks block + unblock', () => {
   });
 
   test('unblock removes blocker and sets task to ready', () => {
-    runCli(['create', '--title', 'B1'], { cwd: projectDir });
-    runCli(['create', '--title', 'B2'], { cwd: projectDir });
+    runCli(['create', '--title', 'B1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'B2', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
     runCli(['unblock', 'TASK-002', '--from', 'TASK-001'], { cwd: projectDir });
     const result = runCli(['show', 'TASK-002'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
@@ -297,7 +300,7 @@ describe('aitasks block + unblock', () => {
 
 describe('aitasks review + reject', () => {
   test('review transitions in_progress task to needs_review', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['review', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
@@ -305,7 +308,7 @@ describe('aitasks review + reject', () => {
   });
 
   test('reject sends task back to in_progress', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     runCli(['review', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['reject', 'TASK-001', '--reason', 'Missing tests'], { cwd: projectDir });
@@ -317,7 +320,7 @@ describe('aitasks review + reject', () => {
 
 
   test('reject requires --reason flag', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     runCli(['review', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['reject', 'TASK-001'], { cwd: projectDir });
@@ -329,7 +332,7 @@ describe('aitasks review + reject', () => {
 
 describe('aitasks next', () => {
   test('shows no tasks message when nothing is ready', () => {
-    runCli(['create', '--title', 'Backlog task'], { cwd: projectDir });
+    runCli(['create', '--title', 'Backlog task', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['next'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('No ready tasks');
@@ -337,7 +340,7 @@ describe('aitasks next', () => {
 
   test('shows the highest priority ready task', () => {
     // Claim+unclaim to put tasks into 'ready' status
-    runCli(['create', '--title', 'High pri', '--priority', 'high'], { cwd: projectDir });
+    runCli(['create', '--title', 'High pri', '--desc', 'Task description', '--ac', 'AC', '--priority', 'high'], { cwd: projectDir });
     runCli(['claim', 'TASK-001', '--agent', 'a'], { cwd: projectDir });
     runCli(['unclaim', 'TASK-001', '--agent', 'a'], { cwd: projectDir });
     const result = runCli(['next'], { cwd: projectDir });
@@ -349,7 +352,7 @@ describe('aitasks next', () => {
 
 describe('aitasks log', () => {
   test('shows event history for a task', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
     const result = runCli(['log', 'TASK-001'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
@@ -362,7 +365,7 @@ describe('aitasks log', () => {
 
 describe('aitasks export', () => {
   test('exports JSON to stdout', () => {
-    runCli(['create', '--title', 'Export me'], { cwd: projectDir });
+    runCli(['create', '--title', 'Export me', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['export', '--format', 'json'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
     const parsed = JSON.parse(result.stdout);
@@ -371,7 +374,7 @@ describe('aitasks export', () => {
   });
 
   test('exports CSV to stdout', () => {
-    runCli(['create', '--title', 'CSV task'], { cwd: projectDir });
+    runCli(['create', '--title', 'CSV task', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['export', '--format', 'csv'], { cwd: projectDir });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('id,title');
@@ -423,7 +426,7 @@ describe('aitasks agents', () => {
   });
 
   test('shows agent after claim', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     runCli(['claim', 'TASK-001', '--agent', 'visible-agent'], { cwd: projectDir });
     const result = runCli(['agents'], { cwd: projectDir });
     expect(result.stdout).toContain('visible-agent');
@@ -439,7 +442,7 @@ describe('error handling', () => {
   });
 
   test('claim requires --agent or AITASKS_AGENT_ID', () => {
-    runCli(['create', '--title', 'T'], { cwd: projectDir });
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
     const result = runCli(['claim', 'TASK-001'], { cwd: projectDir });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain('Agent ID required');

@@ -31,6 +31,17 @@ export const createCommand = new Command('create')
 
     // If all required fields are provided, skip interactive mode
     if (opts.title) {
+      if (!opts.desc || !opts.desc.trim()) {
+        if (json) return jsonOut(false, undefined, 'Missing required field: --desc <description>');
+        console.error(chalk.red('  Missing required field: --desc <description>'));
+        process.exit(1);
+      }
+      if (opts.ac.length === 0) {
+        if (json) return jsonOut(false, undefined, 'Missing required field: --ac <criterion> (at least one required)');
+        console.error(chalk.red('  Missing required field: --ac <criterion> (at least one required)'));
+        process.exit(1);
+      }
+
       if (opts.parent) {
         const parent = getTask(opts.parent);
         if (!parent) {
@@ -75,8 +86,9 @@ export const createCommand = new Command('create')
 
         description: () =>
           p.text({
-            message: 'Description (optional)',
+            message: 'Description',
             placeholder: 'What needs to be done and why',
+            validate: (v) => (!v.trim() ? 'Description is required' : undefined),
           }),
 
         priority: () =>
@@ -105,8 +117,9 @@ export const createCommand = new Command('create')
 
         criteria: () =>
           p.text({
-            message: 'Acceptance criteria (one per line, empty to skip)',
+            message: 'Acceptance criteria (one per line)',
             placeholder: 'API returns 404 for unknown user\nUnit tests pass',
+            validate: (v) => (!v.trim() ? 'At least one acceptance criterion is required' : undefined),
           }),
 
         parent: () =>

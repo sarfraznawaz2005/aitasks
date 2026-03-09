@@ -69,7 +69,7 @@ Always note:
 
 Creating subtasks:
 \`\`\`bash
-aitasks create --title "Write unit tests for auth" --parent TASK-001 --priority high --type chore
+aitasks create --title "Write unit tests for auth" --desc "Add unit tests covering all auth edge cases" --ac "All tests pass" --ac "Coverage ≥ 90%" --parent TASK-001 --priority high --type chore
 \`\`\`
 
 If you discover your task is blocked by something:
@@ -124,6 +124,7 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 4. Add implementation notes continuously, not just at the end.
 5. If a task needs splitting, create subtasks BEFORE marking parent done.
 6. Your evidence strings must be concrete and verifiable — not vague affirmations.
+7. Always provide --desc and at least one --ac when creating a task. Both are required.
 
 ---
 
@@ -133,7 +134,7 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 aitasks next                              Find best task to work on
 aitasks list [--status <s>] [--json]      List tasks
 aitasks show <id>                         Full task detail
-aitasks create [flags]                    Create a task (interactive if no flags)
+aitasks create --title <t> --desc <d> --ac <c> [--ac <c> ...]   Create a task
 aitasks claim <id> --agent <id>           Claim a task
 aitasks start <id> --agent <id>           Begin work
 aitasks note <id> <text> --agent <id>     Add implementation note

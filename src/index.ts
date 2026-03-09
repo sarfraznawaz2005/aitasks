@@ -29,6 +29,18 @@ program
   .name('aitasks')
   .description('CLI task management for AI agents')
   .version('1.0.0')
+  .option('-C, --dir <path>', 'run as if started in this directory')
+  .hook('preAction', () => {
+    const dir = program.opts().dir as string | undefined;
+    if (dir) {
+      try {
+        process.chdir(dir);
+      } catch {
+        console.error(`Error: cannot change to directory: ${dir}`);
+        process.exit(1);
+      }
+    }
+  })
   .addHelpText('after', `
 Environment variables:
   AITASKS_AGENT_ID   Default agent ID for commands that require --agent
@@ -36,6 +48,7 @@ Environment variables:
 
 Examples:
   aitasks init
+  aitasks -C /path/to/project board
   aitasks create --title "Add auth" --priority high --ac "JWT issued on login"
   aitasks next --agent claude-sonnet
   aitasks claim TASK-001 --agent claude-sonnet
