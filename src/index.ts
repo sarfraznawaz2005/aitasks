@@ -23,12 +23,13 @@ import { exportCommand }   from './commands/export.js';
 import { onboardCommand }  from './commands/onboard.js';
 import { dbCommand }       from './commands/db.js';
 
+const pkg = require('../package.json') as { version: string };
 const program = new Command();
 
 program
   .name('aitasks')
   .description('CLI task management for AI agents')
-  .version('1.0.0')
+  .version(pkg.version)
   .option('-C, --dir <path>', 'run as if started in this directory')
   .hook('preAction', () => {
     const dir = program.opts().dir as string | undefined;
