@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Text, renderToString } from 'ink';
 import type { Task, TaskEvent, TaskStatus, TaskPriority, TaskType } from '../types.js';
 import { STATUS_ICON } from './colors.js';
-import { timeAgo, formatDate, formatTime, terminalWidth } from '../utils/format.js';
+import { timeAgo, formatDate, formatTime, terminalWidth, formatDuration } from '../utils/format.js';
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
   backlog:      'white',
@@ -93,6 +93,13 @@ const TaskDetailComponent: React.FC<{ task: Task; events?: TaskEvent[] }> = ({ t
             <Text color="green">{formatDate(task.completed_at)} ({timeAgo(task.completed_at)})</Text>
           </KV>
         ) : null}
+        {task.started_at && (
+          <KV label="Duration">
+            {task.completed_at
+              ? <Text color="cyan">{formatDuration(task.started_at, task.completed_at)}</Text>
+              : <Text color="cyan">{formatDuration(task.started_at)} (ongoing)</Text>}
+          </KV>
+        )}
       </Box>
 
       {/* ── Description ── */}

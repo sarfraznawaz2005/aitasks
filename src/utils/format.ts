@@ -54,3 +54,39 @@ export function wrapText(text: string, width: number, indent = ''): string {
 export function terminalWidth(): number {
   return process.stdout.columns ?? 100;
 }
+
+/**
+ * Format duration between two timestamps in human-readable format
+ * e.g., "2h 34m", "1d 5h", "45m", "3d"
+ */
+export function formatDuration(start: number, end?: number): string {
+  const endMs = end ?? Date.now();
+  const diffMs = endMs - start;
+
+  if (diffMs <= 0) return '0m';
+
+  const seconds = Math.floor(diffMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  const parts: string[] = [];
+
+  if (days > 0) {
+    parts.push(`${days}d`);
+    const remainingHours = hours % 24;
+    if (remainingHours > 0) parts.push(`${remainingHours}h`);
+  } else if (hours > 0) {
+    parts.push(`${hours}h`);
+    const remainingMinutes = minutes % 60;
+    if (remainingMinutes > 0) parts.push(`${remainingMinutes}m`);
+  } else if (minutes > 0) {
+    parts.push(`${minutes}m`);
+    const remainingSeconds = seconds % 60;
+    if (remainingSeconds > 0 && parts.length === 0) parts.push(`${remainingSeconds}s`);
+  } else {
+    parts.push(`${seconds}s`);
+  }
+
+  return parts.join(' ');
+}

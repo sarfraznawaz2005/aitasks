@@ -21,12 +21,12 @@ bun install -g aitasks
 aitasks init
 
 # 2. Create a task
-aitasks create --title "Add JWT auth" --priority high --ac "POST /login returns token" --ac "Token expires in 1h"
+aitasks create --title "Add JWT auth" --desc "Implement user authentication" --priority high --ac "POST /login returns token" --ac "Token expires in 1h"
 
-# 3. Agent picks up work
-aitasks next --agent claude-sonnet
+# 3. Agent picks up work (one-liner with auto-claim)
+aitasks next --claim --agent claude-sonnet
 
-# 4. Claim and start
+# 4. Or claim and start separately
 aitasks claim TASK-001 --agent claude-sonnet
 aitasks start TASK-001 --agent claude-sonnet
 
@@ -40,6 +40,13 @@ aitasks check TASK-001 1 --evidence "token exp claim set to now+3600, confirmed 
 # 7. Mark done
 aitasks done TASK-001 --agent claude-sonnet
 ```
+
+**Pro tips:**
+- Use `aitasks next --claim --agent <id>` to find, claim, and start in one command
+- Bulk operations: `aitasks done TASK-001 TASK-002 TASK-003 --agent <id>`
+- Pattern matching: `aitasks claim TASK-0* --agent <id>` claims all TASK-00x tasks
+- Search: `aitasks search "auth"` finds tasks mentioning authentication
+- Undo mistakes: `aitasks undo TASK-001`
 
 ---
 
@@ -73,7 +80,10 @@ export AITASKS_JSON=true
 | `aitasks list` | List all tasks, sorted by priority |
 | `aitasks list --status ready` | Filter by status (`ready`, `in_progress`, `done`, `blocked`, `needs_review`) |
 | `aitasks next` | Show the highest-priority unblocked ready task |
-| `aitasks show <id>` | Full detail on a specific task |
+| `aitasks next --claim --agent <id>` | Auto-claim and start the best task |
+| `aitasks show <id>` | Full detail on a specific task (includes time tracking) |
+| `aitasks search <query>` | Full-text search across titles, descriptions, and notes |
+| `aitasks deps <id>` | Show dependency tree (what blocks what) |
 | `aitasks board` | Kanban-style board view |
 
 ### Task Lifecycle
@@ -81,14 +91,17 @@ export AITASKS_JSON=true
 | Command | Description |
 |---|---|
 | `aitasks create` | Create a task (interactive if no flags given) |
-| `aitasks claim <id> --agent <id>` | Claim a task |
-| `aitasks start <id> --agent <id>` | Begin active work |
+| `aitasks claim <id...> --agent <id>` | Claim task(s) - supports patterns like `TASK-0*` |
+| `aitasks start <id...> --agent <id>` | Begin active work on task(s) |
 | `aitasks note <id> <text>` | Add an implementation note |
 | `aitasks check <id> <n> --evidence <text>` | Verify acceptance criterion n |
-| `aitasks done <id> --agent <id>` | Mark complete (all criteria must be verified) |
-| `aitasks review <id> --agent <id>` | Submit for human review |
+| `aitasks done <id...> --agent <id>` | Mark task(s) complete (all criteria must be verified) |
+| `aitasks review <id...> --agent <id>` | Submit for human review |
 | `aitasks reject <id> --reason <text>` | Reject and send back to in_progress |
 | `aitasks unclaim <id> --agent <id>` | Release a task back to the pool |
+| `aitasks undo <id>` | Undo the last action on a task |
+
+**Note:** Commands marked with `<id...>` support multiple task IDs and pattern matching (e.g., `TASK-0*`).
 
 ### Blocking
 
@@ -121,10 +134,10 @@ export AITASKS_JSON=true
 aitasks create \
   --title "My task" \
   --desc "Longer description" \
-  --priority high \        # critical | high | medium | low (default: medium)
-  --type feature \         # feature | bug | chore | docs
-  --ac "Returns 200" \     # Acceptance criterion (repeatable)
-  --parent TASK-001        # Parent task ID
+  --ac "Returns 200" \          # Acceptance criterion (repeatable, at least one required)
+  --priority high \             # critical | high | medium | low
+  --type feature \              # feature | bug | chore | spike
+  --parent TASK-001             # Parent task ID (optional)
 ```
 
 ---

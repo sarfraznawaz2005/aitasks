@@ -459,3 +459,341 @@ describe('error handling', () => {
     expect(typeof parsed.error).toBe('string');
   });
 });
+
+// ─── next --claim (auto-claim) ────────────────────────────────────────────────
+
+describe('aitasks next --claim', () => {
+  test('--claim requires --agent', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    const result = runCli(['next', '--claim'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('--claim requires --agent');
+  });
+
+  test('auto-claims and starts the task', () => {
+    runCli(['create', '--title', 'Auto-claim task', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    // Put task in ready state by claiming and unclaiming
+    runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['unclaim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['next', '--claim', '--agent', 'auto-agent'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claimed and started');
+    expect(result.stdout).toContain('TASK-001');
+
+    // Verify task is now in_progress
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('in_progress');
+    expect(parsed.data.assigned_to).toBe('auto-agent');
+  });
+});
+
+// ─── Bulk operations ──────────────────────────────────────────────────────────
+
+describe('bulk operations', () => {
+  test('done accepts multiple task IDs', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC1'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Task description', '--ac', 'AC2'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['start', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['done', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('TASK-001 is DONE');
+    expect(result.stdout).toContain('TASK-002 is DONE');
+  });
+
+  test('claim accepts multiple task IDs', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['claim', 'TASK-001', 'TASK-002', '--agent', 'multi-agent'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claimed TASK-001');
+    expect(result.stdout).toContain('Claimed TASK-002');
+  });
+
+  test('start accepts multiple task IDs', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['claim', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['start', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Started TASK-001');
+    expect(result.stdout).toContain('Started TASK-002');
+  });
+
+  test('bulk done outputs JSON with results array', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC1'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Task description', '--ac', 'AC2'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['done', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], {
+      cwd: projectDir,
+      env: { AITASKS_JSON: 'true' },
+    });
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.data.results).toHaveLength(2);
+    expect(parsed.data.results.every((r: any) => r.success)).toBe(true);
+  });
+});
+
+// ─── deps command ─────────────────────────────────────────────────────────────
+
+describe('aitasks deps', () => {
+  test('shows dependency tree', () => {
+    runCli(['create', '--title', 'Blocker', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Dependent', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
+
+    const result = runCli(['deps', 'TASK-002'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Blocked By');
+    expect(result.stdout).toContain('TASK-001');
+  });
+
+  test('shows downstream dependencies', () => {
+    runCli(['create', '--title', 'Blocker', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Dependent', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
+
+    const result = runCli(['deps', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Blocks');
+    expect(result.stdout).toContain('TASK-002');
+  });
+
+  test('outputs JSON with upstream and downstream', () => {
+    runCli(['create', '--title', 'Blocker', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Dependent', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
+
+    const result = runCli(['deps', 'TASK-002', '--json'], { cwd: projectDir });
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.upstream).toContain('TASK-001');
+    expect(parsed.data.downstream).toEqual([]);
+  });
+});
+
+// ─── search command ───────────────────────────────────────────────────────────
+
+describe('aitasks search', () => {
+  test('finds tasks by title', () => {
+    runCli(['create', '--title', 'Authentication system', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Database setup', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['search', 'auth'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Authentication');
+    expect(result.stdout).not.toContain('Database');
+  });
+
+  test('finds tasks by description', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Implement user login with JWT', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Setup database', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['search', 'login'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('T1');
+  });
+
+  test('returns empty when no matches', () => {
+    runCli(['create', '--title', 'Task one', '--desc', 'Description one', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['search', 'nonexistent'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('No tasks found');
+  });
+
+  test('search requires query argument', () => {
+    const result = runCli(['search'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('missing required argument');
+  });
+});
+
+// ─── undo command ─────────────────────────────────────────────────────────────
+
+describe('aitasks undo', () => {
+  test('undo claimed task', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['undo', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Undone: claimed');
+
+    // Verify task is now unclaimed
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.assigned_to).toBeNull();
+  });
+
+  test('undo started task', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['undo', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Undone: started');
+
+    // Verify task is back to ready
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('ready');
+    expect(parsed.data.started_at).toBeNull();
+  });
+
+  test('undo completed task', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['undo', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Undone: completed');
+
+    // Verify task is back to in_progress
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('in_progress');
+    expect(parsed.data.completed_at).toBeNull();
+  });
+
+  test('undo criterion checked', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC1', '--ac', 'AC2'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+
+    // Undo the last action (criterion_checked)
+    const result = runCli(['undo', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Undone: criterion_checked');
+
+    // Verify criterion is no longer checked
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.test_results).toHaveLength(0);
+  });
+
+  test('undo note added', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['claim', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['note', 'TASK-001', 'Test note content', '--agent', 'agent-a'], { cwd: projectDir });
+
+    // Undo the last action (note_added)
+    const result = runCli(['undo', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Undone: note_added');
+
+    // Verify note is removed
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.implementation_notes).toHaveLength(0);
+  });
+});
+
+// ─── Pattern matching ─────────────────────────────────────────────────────────
+
+describe('pattern matching', () => {
+  test('claim with exact task IDs', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['claim', 'TASK-001', 'TASK-002', '--agent', 'pattern-agent'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claimed TASK-001');
+    expect(result.stdout).toContain('Claimed TASK-002');
+  });
+
+  test('wildcard pattern matches multiple tasks', () => {
+    // TASK-0* matches all TASK-00x tasks since * matches any characters
+    runCli(['create', '--title', 'T1', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T3', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['claim', 'TASK-0*', '--agent', 'wildcard-agent'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Claimed TASK-001');
+    expect(result.stdout).toContain('Claimed TASK-002');
+    expect(result.stdout).toContain('Claimed TASK-003');
+  });
+
+  test('done with wildcard pattern', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['done', 'TASK-0*', '--agent', 'agent-a'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('TASK-001 is DONE');
+    expect(result.stdout).toContain('TASK-002 is DONE');
+  });
+
+  test('pattern with no matches', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['claim', 'TASK-99*', '--agent', 'agent-a'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('No tasks match');
+  });
+});
+
+// ─── Auto-complete parent ─────────────────────────────────────────────────────
+
+describe('auto-complete parent when all subtasks done', () => {
+  test('parent auto-completes when all subtasks are done', () => {
+    // Create parent task
+    runCli(['create', '--title', 'Parent task', '--desc', 'Parent description', '--ac', 'Parent AC'], { cwd: projectDir });
+    // Create subtasks
+    runCli(['create', '--title', 'Subtask 1', '--desc', 'Sub 1', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+    runCli(['create', '--title', 'Subtask 2', '--desc', 'Sub 2', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+
+    // Complete subtask 1
+    runCli(['start', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['done', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+
+    // Parent should still be in_progress (not all subtasks done yet)
+    let show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    let parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).not.toBe('done');
+
+    // Complete subtask 2
+    runCli(['start', 'TASK-003', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-003', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['done', 'TASK-003', '--agent', 'agent-a'], { cwd: projectDir });
+
+    // Parent should now be auto-completed
+    show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('done');
+  });
+
+  test('parent not auto-completed if some subtasks remain', () => {
+    runCli(['create', '--title', 'Parent', '--desc', 'Parent', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Sub 1', '--desc', 'Sub', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+    runCli(['create', '--title', 'Sub 2', '--desc', 'Sub', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+
+    // Only complete one subtask
+    runCli(['start', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['done', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+
+    // Parent should NOT be done
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).not.toBe('done');
+  });
+});

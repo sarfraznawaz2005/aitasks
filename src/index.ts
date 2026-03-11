@@ -22,6 +22,9 @@ import { agentsCommand, heartbeatCommand } from './commands/agents.js';
 import { exportCommand }   from './commands/export.js';
 import { onboardCommand }  from './commands/onboard.js';
 import { dbCommand }       from './commands/db.js';
+import { depsCommand }     from './commands/deps.js';
+import { searchCommand }   from './commands/search.js';
+import { undoCommand }     from './commands/undo.js';
 
 const pkg = require('../package.json') as { version: string };
 const program = new Command();
@@ -50,13 +53,18 @@ Environment variables:
 Examples:
   aitasks init
   aitasks -C /path/to/project board
-  aitasks create --title "Add auth" --priority high --ac "JWT issued on login"
+  aitasks create --title "Add auth" --desc "Implement authentication" --ac "JWT issued on login"
   aitasks next --agent claude-sonnet
-  aitasks claim TASK-001 --agent claude-sonnet
+  aitasks next --claim --agent claude-sonnet          # Auto-claim and start
+  aitasks claim TASK-001 TASK-002 --agent claude      # Bulk claim
+  aitasks claim TASK-0* --agent claude                # Pattern matching
   aitasks start TASK-001
   aitasks note TASK-001 "Using bcrypt for password hashing — src/auth.ts:L22"
   aitasks check TASK-001 0 --evidence "unit test passes: auth.test.ts line 14"
-  aitasks done TASK-001
+  aitasks done TASK-001 --agent claude-sonnet
+  aitasks search "auth"                               # Full-text search
+  aitasks deps TASK-001                               # Show dependencies
+  aitasks undo TASK-001                               # Undo last action
 `);
 
 program.addCommand(initCommand);
@@ -82,6 +90,9 @@ program.addCommand(heartbeatCommand);
 program.addCommand(exportCommand);
 program.addCommand(onboardCommand);
 program.addCommand(dbCommand);
+program.addCommand(depsCommand);
+program.addCommand(searchCommand);
+program.addCommand(undoCommand);
 
 program.parseAsync(process.argv).catch((err: Error) => {
   console.error(err.message);

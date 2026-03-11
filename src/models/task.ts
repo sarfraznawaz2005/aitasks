@@ -353,6 +353,11 @@ export function completeTask(
   const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });
   logEvent({ task_id: taskId, agent_id: agentId, event_type: 'completed', payload: {} });
 
+  // Auto-complete parent if all subtasks are done
+  if (task.parent_id) {
+    autoCompleteParentIfReady(task.parent_id, taskId);
+  }
+
   // Auto-unblock dependent tasks
   const pendingRows = db
     .query(`SELECT id, blocked_by FROM tasks WHERE status != 'done'`)
@@ -381,6 +386,39 @@ export function completeTask(
   db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
 
   return { task: updated };
+}
+
+/**
+ * Auto-complete parent task if all its subtasks are done
+ */
+function autoCompleteParentIfReady(parentId: string, completedSubtaskId: string): void {
+  const db = getDb();
+  const parent = getTask(parentId);
+  if (!parent || parent.status === 'done') return;
+
+  // Get all subtasks of the parent
+  const allSubtasks = listTasks({ parent_id: parentId });
+  if (allSubtasks.length === 0) return;
+
+  // Check if all subtasks are done
+  const allDone = allSubtasks.every(t => t.status === 'done');
+  if (!allDone) return;
+
+  // Auto-complete the parent
+  db.run(
+    `UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ?`,
+    [Date.now(), parentId]
+  );
+
+  logEvent({
+    task_id: parentId,
+    event_type: 'auto_completed',
+    payload: {
+      reason: 'all_subtasks_done',
+      completed_by: completedSubtaskId,
+      subtask_count: allSubtasks.length,
+    },
+  });
 }
 
 export function blockTask(

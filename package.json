@@ -1,6 +1,6 @@
 {
   "name": "aitasks",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "CLI task management tool built for AI agents",
   "type": "module",
   "bin": {
@@ -13,7 +13,7 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --sourcemap=external --external react-devtools-core",
+    "build": "bun build src/index.ts --outdir dist --target bun --sourcemap=external",
     "dev": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
@@ -47,7 +47,8 @@
     "commander": "^12.1.0",
     "date-fns": "^4.1.0",
     "ink": "^6.8.0",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "react-devtools-core": "^6.1.2"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
