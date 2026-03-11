@@ -353,11 +353,6 @@ export function completeTask(
   const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });
   logEvent({ task_id: taskId, agent_id: agentId, event_type: 'completed', payload: {} });
 
-  // Auto-complete parent if all subtasks are done
-  if (task.parent_id) {
-    autoCompleteParentIfReady(task.parent_id, taskId);
-  }
-
   // Auto-unblock dependent tasks
   const pendingRows = db
     .query(`SELECT id, blocked_by FROM tasks WHERE status != 'done'`)
@@ -386,39 +381,6 @@ export function completeTask(
   db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
 
   return { task: updated };
-}
-
-/**
- * Auto-complete parent task if all its subtasks are done
- */
-function autoCompleteParentIfReady(parentId: string, completedSubtaskId: string): void {
-  const db = getDb();
-  const parent = getTask(parentId);
-  if (!parent || parent.status === 'done') return;
-
-  // Get all subtasks of the parent
-  const allSubtasks = listTasks({ parent_id: parentId });
-  if (allSubtasks.length === 0) return;
-
-  // Check if all subtasks are done
-  const allDone = allSubtasks.every(t => t.status === 'done');
-  if (!allDone) return;
-
-  // Auto-complete the parent
-  db.run(
-    `UPDATE tasks SET status = 'done', completed_at = ? WHERE id = ?`,
-    [Date.now(), parentId]
-  );
-
-  logEvent({
-    task_id: parentId,
-    event_type: 'auto_completed',
-    payload: {
-      reason: 'all_subtasks_done',
-      completed_by: completedSubtaskId,
-      subtask_count: allSubtasks.length,
-    },
-  });
 }
 
 export function blockTask(
@@ -620,3 +582,63 @@ export function getStats(): {
     total,
   };
 }
+
+export function deleteTask(
+  taskId: string,
+  agentId?: string
+): { success: boolean; error?: string } {
+  const db = getDb();
+  const task = getTask(taskId);
+
+  if (!task) {
+    return { success: false, error: 'Task not found' };
+  }
+
+  // Check if this task has subtasks
+  const subtasks = listTasks({ parent_id: taskId });
+  if (subtasks.length > 0) {
+    return {
+      success: false,
+      error: `Cannot delete ${taskId} - it has ${subtasks.length} subtask(s). Delete subtasks first.`,
+    };
+  }
+
+  // Log the delete event BEFORE deleting the task (events reference task_id)
+  logEvent({
+    task_id: taskId,
+    agent_id: agentId,
+    event_type: 'deleted',
+    payload: {},
+  });
+
+  // Remove this task from other tasks' blocks/blocked_by arrays
+  const allTasks = listTasks();
+  for (const t of allTasks) {
+    if (t.blocks.includes(taskId)) {
+      updateTask(t.id, { blocks: t.blocks.filter(id => id !== taskId) });
+    }
+    if (t.blocked_by.includes(taskId)) {
+      const remaining = t.blocked_by.filter(id => id !== taskId);
+      updateTask(t.id, {
+        blocked_by: remaining,
+        status: remaining.length === 0 ? 'ready' : 'blocked',
+      });
+    }
+    // Remove parent reference if this task was a parent
+    if (t.parent_id === taskId) {
+      updateTask(t.id, { parent_id: null });
+    }
+  }
+
+  // Delete associated events first (before deleting the task)
+  db.run('DELETE FROM events WHERE task_id = ?', [taskId]);
+
+  // Clear any agent's current_task if pointing to this task
+  db.run('UPDATE agents SET current_task = NULL WHERE current_task = ?', [taskId]);
+
+  // Delete the task
+  db.run('DELETE FROM tasks WHERE id = ?', [taskId]);
+
+  return { success: true };
+}
+

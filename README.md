@@ -47,6 +47,7 @@ aitasks done TASK-001 --agent claude-sonnet
 - Pattern matching: `aitasks claim TASK-0* --agent <id>` claims all TASK-00x tasks
 - Search: `aitasks search "auth"` finds tasks mentioning authentication
 - Undo mistakes: `aitasks undo TASK-001`
+- Delete tasks: `aitasks delete TASK-001` (no need to claim first)
 
 ---
 
@@ -100,6 +101,7 @@ export AITASKS_JSON=true
 | `aitasks reject <id> --reason <text>` | Reject and send back to in_progress |
 | `aitasks unclaim <id> --agent <id>` | Release a task back to the pool |
 | `aitasks undo <id>` | Undo the last action on a task |
+| `aitasks delete <id...>` | Delete task(s) - does not require claiming first |
 
 **Note:** Commands marked with `<id...>` support multiple task IDs and pattern matching (e.g., `TASK-0*`).
 

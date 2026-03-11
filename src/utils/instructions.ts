@@ -32,6 +32,7 @@ aitasks next --claim --agent <id>     # Auto-claim and start the best task (one-
 aitasks show TASK-001                 # Full detail on a specific task
 aitasks search <query>                # Full-text search across titles, descriptions, notes
 aitasks deps TASK-001                 # Show dependency tree (what blocks what)
+aitasks delete TASK-001               # Delete a task (no need to claim first)
 \`\`\`
 
 ---
@@ -128,8 +129,6 @@ You MUST verify every acceptance criterion before marking done.
    aitasks done TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
 
-   **Note:** When you complete a subtask, if ALL sibling subtasks are also done, the parent task will be automatically marked as done.
-
    If human review is needed instead:
    \`\`\`bash
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
@@ -172,7 +171,6 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 5. If a task needs splitting, create subtasks BEFORE marking parent done.
 6. Your evidence strings must be concrete and verifiable — not vague affirmations.
 7. Always provide --desc and at least one --ac when creating a task. Both are required.
-8. When completing a subtask, the parent auto-completes if ALL subtasks are done.
 
 ---
 
@@ -195,6 +193,7 @@ aitasks block <id> --on <id,...>            Mark as blocked
 aitasks unblock <id> --from <id>            Remove a blocker
 aitasks unclaim <id> --agent <id>           Release task
 aitasks undo <id>                           Undo last action on task
+aitasks delete <id...>                      Delete task(s) - no claim required
 aitasks log <id>                            Full event history
 aitasks agents                              List active agents
 aitasks export --format json                Export all tasks

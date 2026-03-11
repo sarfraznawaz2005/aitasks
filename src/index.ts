@@ -25,6 +25,7 @@ import { dbCommand }       from './commands/db.js';
 import { depsCommand }     from './commands/deps.js';
 import { searchCommand }   from './commands/search.js';
 import { undoCommand }     from './commands/undo.js';
+import { deleteCommand }   from './commands/delete.js';
 
 const pkg = require('../package.json') as { version: string };
 const program = new Command();
@@ -65,6 +66,7 @@ Examples:
   aitasks search "auth"                               # Full-text search
   aitasks deps TASK-001                               # Show dependencies
   aitasks undo TASK-001                               # Undo last action
+  aitasks delete TASK-001                             # Delete a task
 `);
 
 program.addCommand(initCommand);
@@ -93,6 +95,7 @@ program.addCommand(dbCommand);
 program.addCommand(depsCommand);
 program.addCommand(searchCommand);
 program.addCommand(undoCommand);
+program.addCommand(deleteCommand);
 
 program.parseAsync(process.argv).catch((err: Error) => {
   console.error(err.message);

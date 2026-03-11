@@ -750,50 +750,105 @@ describe('pattern matching', () => {
   });
 });
 
-// ─── Auto-complete parent ─────────────────────────────────────────────────────
+// ─── delete command ───────────────────────────────────────────────────────────
 
-describe('auto-complete parent when all subtasks done', () => {
-  test('parent auto-completes when all subtasks are done', () => {
-    // Create parent task
-    runCli(['create', '--title', 'Parent task', '--desc', 'Parent description', '--ac', 'Parent AC'], { cwd: projectDir });
-    // Create subtasks
-    runCli(['create', '--title', 'Subtask 1', '--desc', 'Sub 1', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
-    runCli(['create', '--title', 'Subtask 2', '--desc', 'Sub 2', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+describe('aitasks delete', () => {
+  test('delete a single task by ID', () => {
+    runCli(['create', '--title', 'To delete', '--desc', 'Task to delete', '--ac', 'AC'], { cwd: projectDir });
+    const result = runCli(['delete', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Deleted');
+    expect(result.stdout).toContain('TASK-001');
 
-    // Complete subtask 1
-    runCli(['start', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['done', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
-
-    // Parent should still be in_progress (not all subtasks done yet)
-    let show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
-    let parsed = JSON.parse(show.stdout);
-    expect(parsed.data.status).not.toBe('done');
-
-    // Complete subtask 2
-    runCli(['start', 'TASK-003', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['check', 'TASK-003', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['done', 'TASK-003', '--agent', 'agent-a'], { cwd: projectDir });
-
-    // Parent should now be auto-completed
-    show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
-    parsed = JSON.parse(show.stdout);
-    expect(parsed.data.status).toBe('done');
+    // Verify task is gone
+    const list = runCli(['list'], { cwd: projectDir });
+    expect(list.stdout).not.toContain('TASK-001');
   });
 
-  test('parent not auto-completed if some subtasks remain', () => {
-    runCli(['create', '--title', 'Parent', '--desc', 'Parent', '--ac', 'AC'], { cwd: projectDir });
-    runCli(['create', '--title', 'Sub 1', '--desc', 'Sub', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
-    runCli(['create', '--title', 'Sub 2', '--desc', 'Sub', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+  test('delete fails for non-existent task', () => {
+    const result = runCli(['delete', 'TASK-999'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('No tasks match');
+  });
 
-    // Only complete one subtask
-    runCli(['start', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['check', 'TASK-002', '0', '--evidence', 'proof', '--agent', 'agent-a'], { cwd: projectDir });
-    runCli(['done', 'TASK-002', '--agent', 'agent-a'], { cwd: projectDir });
+  test('delete with pattern matching', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T3', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
 
-    // Parent should NOT be done
+    const result = runCli(['delete', 'TASK-0*'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('TASK-001');
+    expect(result.stdout).toContain('TASK-002');
+    expect(result.stdout).toContain('TASK-003');
+
+    // Verify all are deleted
+    const list = runCli(['list'], { cwd: projectDir });
+    expect(list.stdout).toContain('No tasks');
+  });
+
+  test('delete outputs JSON with --json flag', () => {
+    runCli(['create', '--title', 'T1', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'T2', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+
+    const result = runCli(['delete', 'TASK-001', 'TASK-002'], {
+      cwd: projectDir,
+      env: { AITASKS_JSON: 'true' },
+    });
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.deleted).toContain('TASK-001');
+    expect(parsed.data.deleted).toContain('TASK-002');
+    expect(parsed.data.deletedCount).toBe(2);
+  });
+
+  test('cannot delete task with subtasks', () => {
+    runCli(['create', '--title', 'Parent', '--desc', 'Parent task', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Subtask', '--desc', 'Sub', '--ac', 'AC', '--parent', 'TASK-001'], { cwd: projectDir });
+
+    const result = runCli(['delete', 'TASK-001'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toContain('subtask');
+
+    // Parent should still exist
     const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
     const parsed = JSON.parse(show.stdout);
-    expect(parsed.data.status).not.toBe('done');
+    expect(parsed.data.id).toBe('TASK-001');
+  });
+
+  test('delete removes task from other tasks blocked_by', () => {
+    runCli(['create', '--title', 'Blocker', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Blocked', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
+
+    // Verify TASK-002 is blocked
+    let show = runCli(['show', 'TASK-002'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    let parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('blocked');
+
+    // Delete the blocker
+    runCli(['delete', 'TASK-001'], { cwd: projectDir });
+
+    // TASK-002 should now be ready
+    show = runCli(['show', 'TASK-002'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    parsed = JSON.parse(show.stdout);
+    expect(parsed.data.status).toBe('ready');
+    expect(parsed.data.blocked_by).toEqual([]);
+  });
+
+  test('delete removes task from other tasks blocks', () => {
+    runCli(['create', '--title', 'Blocker', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['create', '--title', 'Blocked', '--desc', 'desc', '--ac', 'AC'], { cwd: projectDir });
+    runCli(['block', 'TASK-002', '--on', 'TASK-001'], { cwd: projectDir });
+
+    // Delete the blocked task
+    runCli(['delete', 'TASK-002'], { cwd: projectDir });
+
+    // TASK-001 should no longer have TASK-002 in its blocks
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const parsed = JSON.parse(show.stdout);
+    expect(parsed.data.blocks).toEqual([]);
   });
 });
+
+// ─── Pattern matching ─────────────────────────────────────────────────────────
