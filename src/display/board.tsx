@@ -3,7 +3,8 @@ import { Box, Text, render, renderToString, useApp, useInput, useStdout } from '
 import chalk from 'chalk';
 import type { Task, TaskStatus, TaskPriority } from '../types.js';
 import { STATUS_ICON } from './colors.js';
-import { formatDate, formatTime, timeAgo, terminalWidth } from '../utils/format.js';
+import { formatDate, formatTime, terminalWidth } from '../utils/format.js';
+import { updateTask } from '../models/task.js';
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -57,14 +58,12 @@ function buildTree(tasks: Task[]): TreeItem[] {
 
   // ── IN PROGRESS section ─────────────────────────────────────────
   let firstIp = true;
-  // Root tasks that are in_progress, with their subtasks
   for (const task of sorted.filter(t => t.status === 'in_progress' && !t.parent_id)) {
     push(task, 0, false, 'in_progress', firstIp);
     firstIp = false;
     const subs = sorted.filter(t => t.parent_id === task.id);
     subs.forEach((sub, i) => push(sub, 1, i === subs.length - 1, 'in_progress', false));
   }
-  // Orphaned subtasks whose parent isn't in_progress
   for (const task of sorted.filter(t => t.status === 'in_progress' && !!t.parent_id)) {
     if (!shownIds.has(task.id)) { push(task, 0, false, 'in_progress', firstIp); firstIp = false; }
   }
@@ -97,9 +96,7 @@ const TreeRow: React.FC<{ item: TreeItem; isSelected: boolean; paneWidth: number
   const icon    = STATUS_ICON[task.status];
   const priChar = task.priority[0]!.toUpperCase();
 
-  // Subtasks get 2 leading spaces before the connector → clear visual indent
   const treeStr = indent === 0 ? '' : (isLastSibling ? '  └─ ' : '  ├─ ');
-  // sel(2) + tree(0 or 5) + id(9) + sp(1) + pri(1) + sp(1) + icon(1) + sp(1) = 16 or 21
   const fixedW     = 2 + treeStr.length + 9 + 1 + 1 + 1 + 1 + 1;
   const titleWidth = Math.max(4, paneWidth - fixedW - 1);
 
@@ -122,23 +119,8 @@ const TreeRow: React.FC<{ item: TreeItem; isSelected: boolean; paneWidth: number
   );
 };
 
-// ─── Left pane: section header ────────────────────────────────────────────────
-
-const SectionDivider: React.FC<{ section: 'in_progress' | 'done'; count: number; total?: number; isFirst: boolean }> = ({ section, count, total, isFirst }) => {
-  const color = section === 'in_progress' ? 'yellow' : 'green';
-  const label = section === 'in_progress' ? 'IN PROGRESS' : 'DONE';
-  const countLabel = total !== undefined && total !== count ? `${count} of ${total}` : `${count}`;
-  return (
-    <Box marginTop={isFirst ? 0 : 1} paddingLeft={1}>
-      <Text color={color} bold>{label}</Text>
-      <Text color="#AAAAAA">  ({countLabel})</Text>
-    </Box>
-  );
-};
-
 // ─── Right pane ───────────────────────────────────────────────────────────────
 
-// Helper to apply chalk color (handles both named colors and hex codes)
 const c = (color: string, text: string): string => {
   if (color.startsWith('#')) return chalk.hex(color)(text);
   const chalkAny = chalk as unknown as Record<string, (t: string) => string>;
@@ -146,21 +128,17 @@ const c = (color: string, text: string): string => {
   return text;
 };
 
-// Strip ANSI codes to get visible length
 const visibleLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, '').length;
 
-// Wrap a string that may contain ANSI codes, preserving codes in output
 const wrapAnsiLine = (line: string, maxW: number): string[] => {
   const visible = line.replace(/\x1b\[[0-9;]*m/g, '');
   if (visible.length <= maxW) return [line];
-  // Simple approach: just split by visible chars and re-add ANSI
   const result: string[] = [];
   let current = '';
   let visCount = 0;
   for (let i = 0; i < line.length; i++) {
     const char = line[i]!;
     if (char === '\x1b') {
-      // ANSI sequence - add without counting
       const end = line.indexOf('m', i);
       if (end !== -1) {
         current += line.slice(i, end + 1);
@@ -182,7 +160,6 @@ const wrapAnsiLine = (line: string, maxW: number): string[] => {
 };
 
 const RightPane: React.FC<{ task: Task | undefined; width: number; height: number; scrollOffset: number }> = ({ task, width, height, scrollOffset }) => {
-  // Memoize all the heavy line-building work - only recompute when task or width changes
   const { lines, contentW } = useMemo(() => {
     if (!task) return { lines: [], contentW: 20 };
 
@@ -252,14 +229,12 @@ const RightPane: React.FC<{ task: Task | undefined; width: number; height: numbe
     return { lines, contentW: cw };
   }, [task, width]);
 
-  // Compute these before the second useMemo so hook count is always consistent
   const totalLines   = lines.length;
   const visibleH     = Math.max(3, height - 2);
   const maxOffset    = Math.max(0, totalLines - visibleH);
   const offset       = Math.min(scrollOffset, maxOffset);
   const visibleLines = lines.slice(offset, offset + visibleH);
 
-  // Build scrollbar — must be called unconditionally (Rules of Hooks)
   const scrollbar = useMemo(() => {
     if (totalLines <= visibleH) return Array(visibleH).fill(' ');
     const ratio    = visibleH / totalLines;
@@ -296,6 +271,34 @@ const RightPane: React.FC<{ task: Task | undefined; width: number; height: numbe
   );
 };
 
+// ─── Status picker (right pane overlay for `m`) ───────────────────────────────
+
+const PICKER_STATUSES: TaskStatus[] = ['backlog', 'ready', 'in_progress', 'blocked', 'needs_review', 'done'];
+
+const StatusPicker: React.FC<{ task: Task }> = ({ task }) => (
+  <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
+    <Text>Change status for <Text bold color="cyan">{task.id}</Text></Text>
+    <Text dimColor>{'─'.repeat(36)}</Text>
+    <Box marginTop={1} flexDirection="column">
+      {PICKER_STATUSES.map((status, i) => {
+        const isCurrent = task.status === status;
+        const sc = STATUS_COLORS[status];
+        return (
+          <Box key={status}>
+            <Text color={isCurrent ? 'cyan' : 'gray'}>{i + 1}  </Text>
+            <Text color={sc}>{STATUS_ICON[status]}  </Text>
+            <Text color={isCurrent ? 'cyan' : undefined} bold={isCurrent}>{status}</Text>
+            {isCurrent && <Text dimColor>  ← current</Text>}
+          </Box>
+        );
+      })}
+    </Box>
+    <Box marginTop={1}>
+      <Text dimColor>1–6 select  ·  Esc cancel</Text>
+    </Box>
+  </Box>
+);
+
 // Simple text wrapper
 function wrapText(text: string, maxW: number): string[] {
   const words = text.split(/\s+/);
@@ -315,16 +318,20 @@ function wrapText(text: string, maxW: number): string[] {
 
 // ─── Main live tree board ─────────────────────────────────────────────────────
 
+type Mode = 'normal' | 'move' | 'search';
+
 type LeftRow =
   | { kind: 'spacer' }
   | { kind: 'section'; section: 'in_progress' | 'done'; count: number; total?: number }
   | { kind: 'item'; item: TreeItem; itemIdx: number };
 
 const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) => {
-  const [tasks,        setTasks]        = useState<Task[]>(() => getTasks());
-  const [selectedIdx,  setSelectedIdx]  = useState(0);
+  const [tasks,            setTasks]            = useState<Task[]>(() => getTasks());
+  const [selectedIdx,      setSelectedIdx]      = useState(0);
   const [scrollOffset,     setScrollOffset]     = useState(0);
   const [leftScrollOffset, setLeftScrollOffset] = useState(0);
+  const [mode,             setMode]             = useState<Mode>('normal');
+  const [searchQuery,      setSearchQuery]      = useState('');
   const { exit }   = useApp();
   const { stdout } = useStdout();
 
@@ -333,10 +340,26 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     return () => clearInterval(id);
   }, [getTasks]);
 
-  const items     = useMemo(() => buildTree(tasks), [tasks]);
-  const clampIdx  = Math.min(selectedIdx, Math.max(0, items.length - 1));
+  // Filter tasks by search query before building the tree
+  const filteredTasks = useMemo(() => {
+    if (!searchQuery.trim()) return tasks;
+    const q = searchQuery.toLowerCase();
+    return tasks.filter(t =>
+      t.id.toLowerCase().includes(q) ||
+      t.title.toLowerCase().includes(q) ||
+      t.description.toLowerCase().includes(q) ||
+      t.acceptance_criteria.some(ac => ac.toLowerCase().includes(q)) ||
+      t.implementation_notes.some(n => n.note.toLowerCase().includes(q))
+    );
+  }, [tasks, searchQuery]);
 
-  const leftRows  = useMemo((): LeftRow[] => {
+  const items    = useMemo(() => buildTree(filteredTasks), [filteredTasks]);
+  const clampIdx = Math.min(selectedIdx, Math.max(0, items.length - 1));
+
+  // Reset selection to top when filter changes
+  useEffect(() => { setSelectedIdx(0); }, [searchQuery]);
+
+  const leftRows = useMemo((): LeftRow[] => {
     const ipCnt   = items.filter(i => i.section === 'in_progress').length;
     const ipTotal = items.filter(i => i.section === 'in_progress' || i.section === 'middle').length;
     const doneCnt = items.filter(i => i.section === 'done').length;
@@ -361,10 +384,8 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 
   const selectedRowIdx = leftRows.findIndex(r => r.kind === 'item' && r.itemIdx === clampIdx);
 
-  // Reset right-pane scroll when task changes
   useEffect(() => { setScrollOffset(0); }, [clampIdx]);
 
-  // Auto-scroll left pane to keep selected item visible
   useEffect(() => {
     if (selectedRowIdx < 0) return;
     const visH = Math.max(1, (stdout.rows ?? 30) - 4);
@@ -375,20 +396,51 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     });
   }, [selectedRowIdx, stdout]);
 
-  useInput((input, key) => {
-    if (input === 'q' || key.escape) exit();
-    if (key.upArrow)   setSelectedIdx(i => Math.max(0, i - 1));
-    if (key.downArrow) setSelectedIdx(i => Math.min(items.length - 1, i + 1));
-  });
-
-  const cols       = stdout.columns ?? 120;
-  const rows       = stdout.rows ?? 30;
-  const leftWidth  = Math.max(44, Math.floor(cols * 0.37));
-  const rightWidth = cols - leftWidth - 2; // -2 for 1-char gap between panes
-  const rightHeight = rows - 2; // -2 for borders
   const selectedTask = items[clampIdx]?.task;
 
-  // Keep refs for closure stability
+  useInput((input, key) => {
+    // ── Search mode ──────────────────────────────────────────────────
+    if (mode === 'search') {
+      if (key.escape) { setSearchQuery(''); setMode('normal'); return; }
+      if (key.return) { setMode('normal'); return; }
+      if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return; }
+      if (key.downArrow) { setSelectedIdx(i => Math.min(items.length - 1, i + 1)); return; }
+      if (key.backspace || key.delete) { setSearchQuery(q => q.slice(0, -1)); return; }
+      if (input && !key.ctrl && !key.meta) { setSearchQuery(q => q + input); return; }
+      return;
+    }
+
+    // ── Move mode (status picker) ────────────────────────────────────
+    if (mode === 'move') {
+      if (key.escape || input === 'q') { setMode('normal'); return; }
+      const statusMap: Record<string, TaskStatus> = {
+        '1': 'backlog', '2': 'ready', '3': 'in_progress',
+        '4': 'blocked', '5': 'needs_review', '6': 'done',
+      };
+      const newStatus = statusMap[input];
+      if (newStatus && selectedTask) {
+        updateTask(selectedTask.id, { status: newStatus });
+        setTasks(getTasks());
+        setMode('normal');
+      }
+      return;
+    }
+
+    // ── Normal mode ──────────────────────────────────────────────────
+    if (input === 'q') exit();
+    if (key.escape) { searchQuery ? setSearchQuery('') : exit(); return; }
+    if (key.upArrow)   setSelectedIdx(i => Math.max(0, i - 1));
+    if (key.downArrow) setSelectedIdx(i => Math.min(items.length - 1, i + 1));
+    if (input === 's') setMode('search');
+    if (input === 'm' && selectedTask) setMode('move');
+  });
+
+  const cols        = stdout.columns ?? 120;
+  const rows        = stdout.rows ?? 30;
+  const leftWidth   = Math.max(44, Math.floor(cols * 0.37));
+  const rightWidth  = cols - leftWidth - 2;
+  const rightHeight = rows - 2;
+
   const itemsLenRef = useRef(items.length);
   itemsLenRef.current = items.length;
   const leftWidthRef = useRef(leftWidth);
@@ -396,26 +448,21 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const scrollOffsetRef = useRef(scrollOffset);
   scrollOffsetRef.current = scrollOffset;
 
-  // Enable mouse wheel scrolling (mount/unmount only — no dep churn)
   useEffect(() => {
-    // Enable X10 + SGR extended mouse (SGR is required by Windows Terminal for wheel)
     process.stdout.write('\x1b[?1000h\x1b[?1006h');
 
     const onData = (buf: Buffer) => {
       const str = buf.toString('latin1');
 
-      // SGR format: ESC [ < Pb ; Px ; Py M  (Pb=64 up, 65 down)
       const sgr = str.match(/\x1b\[<(\d+);(\d+);(\d+)M/);
       if (sgr) {
         const btn = parseInt(sgr[1]!, 10);
-        const col = parseInt(sgr[2]!, 10) - 1; // SGR cols are 1-indexed
+        const col = parseInt(sgr[2]!, 10) - 1;
         if (btn === 64 || btn === 65) {
           if (col < leftWidthRef.current) {
-            // Left pane: navigate tasks
             if (btn === 64) setSelectedIdx(i => Math.max(0, i - 1));
             if (btn === 65) setSelectedIdx(i => Math.min(itemsLenRef.current - 1, i + 1));
           } else {
-            // Right pane: scroll content (8 lines per tick)
             if (btn === 64) setScrollOffset(o => Math.max(0, o - 8));
             if (btn === 65) setScrollOffset(o => o + 8);
           }
@@ -423,7 +470,6 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
         return;
       }
 
-      // X10 format: ESC [ M <btn+32> <col+33> <row+33>  (fallback)
       if (buf[0] === 0x1b && buf[1] === 0x5b && buf[2] === 0x4d) {
         const btn = (buf[3] ?? 32) - 32;
         const col = (buf[4] ?? 33) - 33;
@@ -432,7 +478,6 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             if (btn === 64) setSelectedIdx(i => Math.max(0, i - 1));
             if (btn === 65) setSelectedIdx(i => Math.min(itemsLenRef.current - 1, i + 1));
           } else {
-            // Right pane: scroll content (8 lines per tick)
             if (btn === 64) setScrollOffset(o => Math.max(0, o - 8));
             if (btn === 65) setScrollOffset(o => o + 8);
           }
@@ -445,14 +490,12 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       process.stdout.write('\x1b[?1006l\x1b[?1000l');
       process.stdin.off('data', onData);
     };
-  }, []); // empty deps — mount/unmount only
+  }, []);
 
-  // Inner widths (border consumes 2 chars each side)
   const leftInner  = leftWidth - 2;
   const rightInner = rightWidth - 2;
 
-  // Left pane scroll
-  const leftVisibleH    = Math.max(1, rows - 4); // rows - 2 (border) - 1 (header) - 1 (divider)
+  const leftVisibleH    = Math.max(1, rows - 4);
   const leftTotalRows   = leftRows.length;
   const leftMaxOffset   = Math.max(0, leftTotalRows - leftVisibleH);
   const leftOffset      = Math.min(leftScrollOffset, leftMaxOffset);
@@ -469,6 +512,13 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     return bar;
   })();
 
+  const taskCountLabel = searchQuery
+    ? `${filteredTasks.length} of ${tasks.length}`
+    : `${tasks.length}`;
+
+  // Rendered inline — see HeaderHint below
+  const searchMode = mode === 'search';
+
   return (
     <Box flexDirection="column" width={cols}>
       <Box width={cols} height={rows}>
@@ -484,10 +534,38 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           {/* Pane header */}
           <Box paddingLeft={1}>
             <Text bold color="white">Tasks  </Text>
-            <Text color="#AAAAAA">({tasks.length})</Text>
-            <Text dimColor>    ↑↓ navigate  ·  q quit</Text>
+            <Text color="#AAAAAA">({taskCountLabel})</Text>
+            <Text dimColor>    </Text>
+            {searchMode ? (
+              <>
+                <Text dimColor>type to filter  ·  </Text>
+                <Text color="cyan">Enter</Text>
+                <Text dimColor> done  ·  </Text>
+                <Text color="cyan">Esc</Text>
+                <Text dimColor> clear</Text>
+              </>
+            ) : (
+              <>
+                <Text color="cyan">s</Text>
+                <Text dimColor> search  ·  </Text>
+                <Text color="cyan">m</Text>
+                <Text dimColor> status  ·  </Text>
+                <Text color="cyan">q</Text>
+                <Text dimColor> quit</Text>
+              </>
+            )}
           </Box>
-          <Text dimColor>{'─'.repeat(leftInner)}</Text>
+
+          {/* Search bar or divider */}
+          {(mode === 'search' || searchQuery) ? (
+            <Box paddingLeft={1}>
+              <Text color="cyan">/ </Text>
+              <Text color="white">{searchQuery}</Text>
+              {mode === 'search' && <Text color="cyan" bold>█</Text>}
+            </Box>
+          ) : (
+            <Text dimColor>{'─'.repeat(leftInner)}</Text>
+          )}
 
           {/* Tree items */}
           {visibleLeftRows.map((row, i) => {
@@ -528,11 +606,13 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           borderStyle="round"
           borderColor="gray"
         >
-          <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} />
+          {mode === 'move' && selectedTask
+            ? <StatusPicker task={selectedTask} />
+            : <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} />
+          }
         </Box>
 
       </Box>
-
     </Box>
   );
 };
