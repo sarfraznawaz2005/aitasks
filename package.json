@@ -1,6 +1,6 @@
 {
   "name": "aitasks",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CLI task management tool built for AI agents",
   "type": "module",
   "bin": {

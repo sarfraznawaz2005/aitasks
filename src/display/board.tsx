@@ -77,8 +77,11 @@ function buildTree(tasks: Task[]): TreeItem[] {
   }
 
   // ── DONE section ─────────────────────────────────────────────────
+  const doneSorted = sorted
+    .filter(t => t.status === 'done')
+    .sort((a, b) => (b.completed_at ?? b.created_at) - (a.completed_at ?? a.created_at));
   let firstDone = true;
-  for (const task of sorted.filter(t => t.status === 'done')) {
+  for (const task of doneSorted) {
     if (shownIds.has(task.id)) continue;
     push(task, 0, false, 'done', firstDone);
     firstDone = false;
