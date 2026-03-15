@@ -9,7 +9,7 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
   ready:        'blue',
   in_progress:  'yellow',
   blocked:      '#FF5C5C',
-  needs_review: 'magenta',
+  review:       'magenta',
   done:         'green',
 };
 

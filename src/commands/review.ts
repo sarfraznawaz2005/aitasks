@@ -54,8 +54,9 @@ export const reviewCommand = new Command('review')
       if (!json) {
         console.log('');
         console.log(chalk.magenta('  ◈') + `  ${chalk.bold(task.id)} submitted for review`);
-        console.log(chalk.dim(`     A human can approve with: aitasks done ${task.id}`));
-        console.log(chalk.dim(`     Or reject with: aitasks reject ${task.id} --reason "<reason>"`));
+        console.log(chalk.dim(`     Spawn a review sub-agent to inspect the implementation.`));
+        console.log(chalk.dim(`     Approve: aitasks done ${task.id} --agent <review-agent-id>`));
+        console.log(chalk.dim(`     Reject:  aitasks reject ${task.id} --reason "<feedback>"`));
       }
     }
 

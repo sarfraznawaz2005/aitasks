@@ -1,6 +1,17 @@
 import type { Database } from 'bun:sqlite';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+export function runMigrations(db: Database): void {
+  const row = db.query(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | null;
+  const current = row ? parseInt(row.value, 10) : 1;
+
+  if (current < 2) {
+    db.exec(`UPDATE tasks SET status = 'review' WHERE status = 'needs_review'`);
+    db.exec(`INSERT OR IGNORE INTO meta (key, value) VALUES ('review_required', 'false')`);
+    db.exec(`UPDATE meta SET value = '2' WHERE key = 'schema_version'`);
+  }
+}
 
 export function initializeSchema(db: Database): void {
   db.exec(`
@@ -59,4 +70,5 @@ export function initializeSchema(db: Database): void {
   insert.run('last_task_number', '0');
   insert.run('schema_version', String(SCHEMA_VERSION));
   insert.run('initialized_at', String(Date.now()));
+  insert.run('review_required', 'false');
 }

@@ -104,7 +104,7 @@ function getStatusIcon(status: string): string {
     ready: '◐',
     in_progress: '▶',
     blocked: '⊘',
-    needs_review: '◈',
+    review: '◈',
     done: '✓',
   };
   return icons[status] || '○';

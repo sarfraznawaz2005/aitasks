@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { initializeSchema } from './schema.js';
+import { initializeSchema, runMigrations } from './schema.js';
 import { performBackupIfNeeded, restoreFromBackup } from './backup.js';
 import { findProjectRoot } from '../utils/project-root.js';
 
@@ -94,10 +94,22 @@ export function getDb(): Database {
   const db = new Database(dbPath);
   applyPragmas(db);
   checkIntegrity(db, taskieDir);
+  runMigrations(db);
   registerCleanup();
 
   _db = db;
   return db;
+}
+
+export function getReviewRequired(): boolean {
+  const db = getDb();
+  const row = db.query(`SELECT value FROM meta WHERE key = 'review_required'`).get() as { value: string } | null;
+  return row?.value === 'true';
+}
+
+export function setReviewRequired(enabled: boolean): void {
+  const db = getDb();
+  db.run(`INSERT OR REPLACE INTO meta (key, value) VALUES ('review_required', ?)`, [enabled ? 'true' : 'false']);
 }
 
 /**

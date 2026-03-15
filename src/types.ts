@@ -3,7 +3,7 @@ export type TaskStatus =
   | 'ready'
   | 'in_progress'
   | 'blocked'
-  | 'needs_review'
+  | 'review'
   | 'done';
 
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';

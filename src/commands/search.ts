@@ -51,7 +51,7 @@ export const searchCommand = new Command('search')
       console.log('');
       console.log(
         `${chalk.bold.white(task.id)}  ` +
-        `${priColor(task.priority[0].toUpperCase())}  ` +
+        `${priColor((task.priority[0] ?? '?').toUpperCase())}  ` +
         `${statusIcon} ` +
         highlightMatches(task.title, searchTerms)
       );
@@ -127,7 +127,7 @@ function getStatusIcon(status: string): string {
     ready: chalk.blue('◐'),
     in_progress: chalk.yellow('▶'),
     blocked: chalk.hex('#FF5C5C')('⊘'),
-    needs_review: chalk.magenta('◈'),
+    review: chalk.magenta('◈'),
     done: chalk.green('✓'),
   };
   return icons[status] || '○';

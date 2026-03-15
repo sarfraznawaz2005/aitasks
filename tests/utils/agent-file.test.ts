@@ -7,7 +7,10 @@ import {
   injectOrCreateAgentFile,
   appendToSpecificFile,
 } from '../../src/utils/agent-file.js';
-import { INSTRUCTIONS_START_MARKER } from '../../src/utils/instructions.js';
+import {
+  INSTRUCTIONS_START_MARKER,
+  INSTRUCTIONS_END_MARKER,
+} from '../../src/utils/instructions.js';
 
 let testDir: string;
 
@@ -92,6 +95,68 @@ describe('injectOrCreateAgentFile', () => {
     injectOrCreateAgentFile(testDir, '1.0.0');
     const content = readFileSync(p, 'utf8');
     expect(content.startsWith('# My Project')).toBe(true);
+  });
+});
+
+describe('injectOrCreateAgentFile — force replace', () => {
+  test('replaces instructions block when force=true and marker already present', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD CONTENT\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, `# Project\n\n${oldBlock}\n`);
+    const result = injectOrCreateAgentFile(testDir, '1.0.0', false, true);
+    expect(result.action).toBe('appended');
+    const content = readFileSync(p, 'utf8');
+    expect(content).not.toContain('OLD CONTENT');
+    expect(content).toContain(INSTRUCTIONS_START_MARKER);
+    expect(content).toContain(INSTRUCTIONS_END_MARKER);
+  });
+
+  test('force replace preserves content before the instructions block', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, `# My Project\n\nSome notes.\n\n${oldBlock}\n`);
+    injectOrCreateAgentFile(testDir, '1.0.0', false, true);
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('# My Project');
+    expect(content).toContain('Some notes.');
+  });
+
+  test('force replace preserves content after the instructions block', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, `${oldBlock}\n\n## Footer section\n`);
+    injectOrCreateAgentFile(testDir, '1.0.0', false, true);
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('## Footer section');
+  });
+
+  test('force replace injects review-aware instructions', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, oldBlock + '\n');
+    injectOrCreateAgentFile(testDir, '1.0.0', true /* reviewRequired */, true);
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('REVIEW REQUIRED');
+  });
+
+  test('without force, skips even when review content differs', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, oldBlock + '\n');
+    const result = injectOrCreateAgentFile(testDir, '1.0.0', true, false);
+    expect(result.action).toBe('skipped');
+    const content = readFileSync(p, 'utf8');
+    expect(content).toContain('OLD');
+  });
+
+  test('no duplicate markers after force replace', () => {
+    const p = join(testDir, 'AGENTS.md');
+    const oldBlock = `${INSTRUCTIONS_START_MARKER}\nOLD\n${INSTRUCTIONS_END_MARKER}`;
+    writeFileSync(p, oldBlock + '\n');
+    injectOrCreateAgentFile(testDir, '1.0.0', false, true);
+    const content = readFileSync(p, 'utf8');
+    const startCount = (content.match(new RegExp(INSTRUCTIONS_START_MARKER.replace(/[<>!-]/g, '\\$&'), 'g')) ?? []).length;
+    expect(startCount).toBe(1);
   });
 });
 

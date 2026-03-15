@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestContext, cleanupTestContext, type TestContext } from '../setup.js';
 import { getTaskEvents } from '../../src/models/event.js';
 import { listAgents } from '../../src/models/task.js';
+import { setReviewRequired } from '../../src/db/index.js';
 import {
   createTask,
   getTask,
@@ -621,12 +622,12 @@ describe('unblockTask', () => {
 // ─── reviewTask ───────────────────────────────────────────────────────────────
 
 describe('reviewTask', () => {
-  test('transitions in_progress task to needs_review', () => {
+  test('transitions in_progress task to review', () => {
     const task = makeTask();
     startTask(task.id, 'agent-1');
     const { task: reviewed, error } = reviewTask(task.id, 'agent-1');
     expect(error).toBeUndefined();
-    expect(reviewed!.status).toBe('needs_review');
+    expect(reviewed!.status).toBe('review');
   });
 
   test('fails when task is not in_progress', () => {
@@ -634,12 +635,20 @@ describe('reviewTask', () => {
     const { error } = reviewTask(task.id, 'agent-1');
     expect(error).toContain('in_progress');
   });
+
+  test('logs review_requested event', () => {
+    const task = makeTask();
+    startTask(task.id, 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    const events = getTaskEvents(task.id);
+    expect(events.some((e) => e.event_type === 'review_requested')).toBe(true);
+  });
 });
 
 // ─── rejectTask ───────────────────────────────────────────────────────────────
 
 describe('rejectTask', () => {
-  test('sends needs_review back to in_progress', () => {
+  test('sends review task back to in_progress', () => {
     const task = makeTask();
     startTask(task.id, 'agent-1');
     reviewTask(task.id, 'agent-1');
@@ -657,10 +666,114 @@ describe('rejectTask', () => {
     expect(updated.implementation_notes.some((n) => n.note.includes('Needs more tests'))).toBe(true);
   });
 
-  test('fails when task is not needs_review', () => {
+  test('fails when task is not in review status', () => {
     const task = makeTask();
     const { error } = rejectTask(task.id, 'Reason', 'human');
-    expect(error).toContain('needs_review');
+    expect(error).toContain('review');
+  });
+
+  test('logs rejected event', () => {
+    const task = makeTask();
+    startTask(task.id, 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    rejectTask(task.id, 'Fix tests', 'reviewer');
+    const events = getTaskEvents(task.id);
+    expect(events.some((e) => e.event_type === 'rejected')).toBe(true);
+  });
+});
+
+// ─── completeTask (review enforcement) ───────────────────────────────────────
+
+describe('completeTask — review enforcement', () => {
+  test('blocks done when review_required and task is not in review status', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    const { task: result, error } = completeTask(task.id, 'agent-1');
+    expect(result).toBeNull();
+    expect(error).toContain('Review required');
+  });
+
+  test('allows done when review_required and task is in review status', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    const { task: done, error } = completeTask(task.id, 'review-agent');
+    expect(error).toBeUndefined();
+    expect(done!.status).toBe('done');
+  });
+
+  test('allows done when review_required is false (default)', () => {
+    // review_required defaults to false in a fresh DB
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    const { task: done, error } = completeTask(task.id, 'agent-1');
+    expect(error).toBeUndefined();
+    expect(done!.status).toBe('done');
+  });
+
+  test('still blocks done when criteria are unchecked even if in review status', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1', 'AC2'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof 0', 'agent-1');
+    // Force to review status without checking all criteria
+    updateTask(task.id, { status: 'review' });
+    const { task: result, error } = completeTask(task.id, 'review-agent');
+    expect(result).toBeNull();
+    expect(error).toContain('acceptance criteria');
+  });
+
+  test('review gate error message mentions review command', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T' });
+    startTask(task.id, 'agent-1');
+    const { error } = completeTask(task.id, 'agent-1');
+    expect(error).toContain('aitasks review');
+  });
+});
+
+// ─── reviewTask → reject → redo cycle ────────────────────────────────────────
+
+describe('review cycle', () => {
+  test('full cycle: in_progress → review → rejected → in_progress → review → done', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'initial proof', 'agent-1');
+
+    // First review submission
+    reviewTask(task.id, 'agent-1');
+    expect(getTask(task.id)!.status).toBe('review');
+
+    // Rejected — goes back to in_progress
+    rejectTask(task.id, 'Needs better proof', 'reviewer');
+    expect(getTask(task.id)!.status).toBe('in_progress');
+
+    // Re-verify criterion with better evidence
+    checkCriterion(task.id, 0, 'better proof with test output', 'agent-1');
+
+    // Second review submission
+    reviewTask(task.id, 'agent-1');
+    expect(getTask(task.id)!.status).toBe('review');
+
+    // Approved
+    const { task: done, error } = completeTask(task.id, 'reviewer');
+    expect(error).toBeUndefined();
+    expect(done!.status).toBe('done');
+  });
+
+  test('cannot submit for review when task is already in review status', () => {
+    const task = makeTask({ title: 'T' });
+    startTask(task.id, 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    // Trying to review again should fail (must be in_progress)
+    const { error } = reviewTask(task.id, 'agent-1');
+    expect(error).toContain('in_progress');
   });
 });
 

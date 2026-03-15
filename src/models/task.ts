@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { getDb, getReviewRequired } from '../db/index.js';
 import { logEvent } from './event.js';
 import type { SQLQueryBindings } from 'bun:sqlite';
 import type {
@@ -64,7 +64,7 @@ const PRIORITY_ORDER = `CASE priority
 
 const STATUS_ORDER = `CASE status
   WHEN 'in_progress'  THEN 0
-  WHEN 'needs_review' THEN 1
+  WHEN 'review'       THEN 1
   WHEN 'blocked'      THEN 2
   WHEN 'ready'        THEN 3
   WHEN 'backlog'      THEN 4
@@ -350,6 +350,20 @@ export function completeTask(
     return { task: null, error: 'Not all acceptance criteria are verified', unchecked };
   }
 
+  // Enforce review gate if enabled
+  if (getReviewRequired() && task.status !== 'review') {
+    return {
+      task: null,
+      error:
+        'Review required: submit this task for review first.\n' +
+        '  1. aitasks review <taskId> --agent $AITASKS_AGENT_ID\n' +
+        '  2. Spawn a review sub-agent to inspect the work\n' +
+        '  3. Review agent approves: aitasks done <taskId> --agent <review-agent-id>\n' +
+        '     Review agent rejects: aitasks reject <taskId> --reason "<feedback>"\n' +
+        '  Tasks cannot be moved to Done without a passing review.',
+    };
+  }
+
   const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });
   logEvent({ task_id: taskId, agent_id: agentId, event_type: 'completed', payload: {} });
 
@@ -470,7 +484,7 @@ export function reviewTask(
     return { task: null, error: 'Task must be in_progress to request review' };
   }
 
-  const updated = updateTask(taskId, { status: 'needs_review' });
+  const updated = updateTask(taskId, { status: 'review' });
   logEvent({ task_id: taskId, agent_id: agentId, event_type: 'review_requested', payload: {} });
   return { task: updated };
 }
@@ -482,8 +496,8 @@ export function rejectTask(
 ): { task: Task | null; error?: string } {
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
-  if (task.status !== 'needs_review') {
-    return { task: null, error: 'Task must be in needs_review status to reject' };
+  if (task.status !== 'review') {
+    return { task: null, error: 'Task must be in review status to reject' };
   }
 
   updateTask(taskId, { status: 'in_progress' });

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { requireInitialized } from '../db/index.js';
+import { requireInitialized, getReviewRequired } from '../db/index.js';
 import { getTask, updateTask } from '../models/task.js';
 import type { TaskPriority, TaskType, TaskStatus } from '../types.js';
 import { jsonOut, isJsonMode, exitError } from './shared.js';
@@ -52,6 +52,15 @@ export const updateCommand = new Command('update')
 
     if (Object.keys(changes).length === 0) {
       exitError('No changes specified. Use --help to see available options.', json);
+    }
+
+    // Enforce review gate: cannot bypass it by setting status=done directly
+    if (opts.status === 'done' && getReviewRequired() && task.status !== 'review') {
+      exitError(
+        'Review required: use `aitasks done` which enforces the review gate.\n' +
+        '  Submit for review first: aitasks review <taskId> --agent $AITASKS_AGENT_ID',
+        json
+      );
     }
 
     const updated = updateTask(id, changes);

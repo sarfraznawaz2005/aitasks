@@ -51,6 +51,41 @@ describe('getAgentInstructions', () => {
   });
 });
 
+describe('getAgentInstructions — review mode', () => {
+  const reviewInstructions = getAgentInstructions('1.0.0', { reviewRequired: true });
+
+  test('includes REVIEW REQUIRED heading when reviewRequired is true', () => {
+    expect(reviewInstructions).toContain('REVIEW REQUIRED');
+  });
+
+  test('includes aitasks review command when reviewRequired is true', () => {
+    expect(reviewInstructions).toContain('aitasks review');
+  });
+
+  test('includes aitasks reject command when reviewRequired is true', () => {
+    expect(reviewInstructions).toContain('aitasks reject');
+  });
+
+  test('includes rule 8 (no direct done) when reviewRequired is true', () => {
+    expect(reviewInstructions).toContain('NEVER move a task to done directly');
+  });
+
+  test('does not include rule 8 when reviewRequired is false', () => {
+    const std = getAgentInstructions('1.0.0', { reviewRequired: false });
+    expect(std).not.toContain('NEVER move a task to done directly');
+  });
+
+  test('standard instructions do not mention REVIEW REQUIRED', () => {
+    const std = getAgentInstructions('1.0.0');
+    expect(std).not.toContain('REVIEW REQUIRED');
+  });
+
+  test('both variants contain start and end markers', () => {
+    expect(reviewInstructions).toContain(INSTRUCTIONS_START_MARKER);
+    expect(reviewInstructions).toContain(INSTRUCTIONS_END_MARKER);
+  });
+});
+
 describe('instructionsAlreadyPresent', () => {
   test('returns true when content contains start marker', () => {
     const content = `# My File\n\n${INSTRUCTIONS_START_MARKER}\nsome content\n${INSTRUCTIONS_END_MARKER}`;

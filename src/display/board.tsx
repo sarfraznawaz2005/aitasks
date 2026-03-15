@@ -13,7 +13,7 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
   ready:        'blue',
   in_progress:  'yellow',
   blocked:      '#FF5C5C',
-  needs_review: 'magenta',
+  review: 'magenta',
   done:         'green',
 };
 
@@ -39,12 +39,12 @@ interface TreeItem {
 
 function buildTree(tasks: Task[]): TreeItem[] {
   const sorted        = [...tasks].sort((a, b) => a.id.localeCompare(b.id));
-  const inProgressIds = new Set(sorted.filter(t => t.status === 'in_progress').map(t => t.id));
+  const inProgressIds = new Set(sorted.filter(t => t.status === 'in_progress' || t.status === 'review').map(t => t.id));
   const doneIds       = new Set(sorted.filter(t => t.status === 'done').map(t => t.id));
   const shownIds      = new Set<string>();
   const items: TreeItem[] = [];
 
-  const ipCount   = sorted.filter(t => t.status === 'in_progress').length;
+  const ipCount   = sorted.filter(t => t.status === 'in_progress' || t.status === 'review').length;
   const doneCount = sorted.filter(t => t.status === 'done').length;
 
   function push(task: Task, indent: number, isLastSibling: boolean, section: Section, showHeader: boolean) {
@@ -56,19 +56,19 @@ function buildTree(tasks: Task[]): TreeItem[] {
     shownIds.add(task.id);
   }
 
-  // ── IN PROGRESS section ─────────────────────────────────────────
+  // ── IN PROGRESS section (includes review tasks) ─────────────────
   let firstIp = true;
-  for (const task of sorted.filter(t => t.status === 'in_progress' && !t.parent_id)) {
+  for (const task of sorted.filter(t => (t.status === 'in_progress' || t.status === 'review') && !t.parent_id)) {
     push(task, 0, false, 'in_progress', firstIp);
     firstIp = false;
     const subs = sorted.filter(t => t.parent_id === task.id);
     subs.forEach((sub, i) => push(sub, 1, i === subs.length - 1, 'in_progress', false));
   }
-  for (const task of sorted.filter(t => t.status === 'in_progress' && !!t.parent_id)) {
+  for (const task of sorted.filter(t => (t.status === 'in_progress' || t.status === 'review') && !!t.parent_id)) {
     if (!shownIds.has(task.id)) { push(task, 0, false, 'in_progress', firstIp); firstIp = false; }
   }
 
-  // ── MIDDLE section (non-ip, non-done root tasks in ID order) ─────
+  // ── MIDDLE section (non-ip, non-review, non-done root tasks in ID order) ─────
   for (const task of sorted.filter(t => !t.parent_id && !inProgressIds.has(t.id) && !doneIds.has(t.id))) {
     if (shownIds.has(task.id)) continue;
     push(task, 0, false, 'middle', false);
@@ -283,7 +283,7 @@ const RightPane: React.FC<{
 
 // ─── Status picker (right pane overlay for `m`) ───────────────────────────────
 
-const PICKER_STATUSES: TaskStatus[] = ['backlog', 'ready', 'in_progress', 'blocked', 'needs_review', 'done'];
+const PICKER_STATUSES: TaskStatus[] = ['backlog', 'ready', 'in_progress', 'blocked', 'review', 'done'];
 
 const StatusPicker: React.FC<{ task: Task }> = ({ task }) => (
   <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
@@ -460,7 +460,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       if (key.escape || input === 'q') { setMode('normal'); return; }
       const statusMap: Record<string, TaskStatus> = {
         '1': 'backlog', '2': 'ready', '3': 'in_progress',
-        '4': 'blocked', '5': 'needs_review', '6': 'done',
+        '4': 'blocked', '5': 'review', '6': 'done',
       };
       const newStatus = statusMap[input];
       if (newStatus && selectedTask) {
@@ -751,10 +751,10 @@ export async function startTreeBoard(getTasks: () => Task[]): Promise<void> {
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   backlog: 'BACKLOG', ready: 'READY', in_progress: 'IN PROGRESS',
-  blocked: 'BLOCKED', needs_review: 'NEEDS REVIEW', done: 'DONE',
+  blocked: 'BLOCKED', review: 'REVIEW', done: 'DONE',
 };
 
-const ALL_STATUSES: TaskStatus[] = ['in_progress', 'needs_review', 'ready', 'blocked', 'backlog', 'done'];
+const ALL_STATUSES: TaskStatus[] = ['in_progress', 'review', 'ready', 'blocked', 'backlog', 'done'];
 
 const StaticCard: React.FC<{ task: Task }> = ({ task }) => {
   const priColor = PRIORITY_COLORS[task.priority] ?? 'gray';

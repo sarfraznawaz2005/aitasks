@@ -1,7 +1,8 @@
 export const INSTRUCTIONS_START_MARKER = '<!-- aitasks:instructions -->';
 export const INSTRUCTIONS_END_MARKER = '<!-- aitasks:instructions:end -->';
 
-export function getAgentInstructions(version: string): string {
+export function getAgentInstructions(version: string, opts: { reviewRequired?: boolean } = {}): string {
+  const reviewRequired = opts.reviewRequired ?? false;
   return `${INSTRUCTIONS_START_MARKER}
 
 ## AITasks — Agent Task Protocol (v${version})
@@ -108,7 +109,7 @@ aitasks deps TASK-001    # Shows what this task is blocked by and what it blocks
 
 ---
 
-### Completing a Task
+### Completing a Task${reviewRequired ? ' ⚠️  REVIEW REQUIRED' : ''}
 
 You MUST verify every acceptance criterion before marking done.
 
@@ -124,15 +125,30 @@ You MUST verify every acceptance criterion before marking done.
    aitasks check TASK-001 2 --evidence "integration test suite passes: 12/12 green"
    \`\`\`
 
-3. Mark done (will FAIL if any criterion is unchecked):
+${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
+   \`\`\`bash
+   aitasks review TASK-001 --agent $AITASKS_AGENT_ID
+   \`\`\`
+
+4. Spawn a review sub-agent to inspect the implementation and either:
+   - **Approve** (moves task to done):
+     \`\`\`bash
+     aitasks done TASK-001 --agent <review-agent-id>
+     \`\`\`
+   - **Reject** (sends task back to in_progress with feedback):
+     \`\`\`bash
+     aitasks reject TASK-001 --reason "<specific feedback>" --agent <review-agent-id>
+     \`\`\`
+
+5. If rejected: address the feedback, re-check criteria, and repeat from step 3.` : `3. Mark done (will FAIL if any criterion is unchecked):
    \`\`\`bash
    aitasks done TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
 
-   If human review is needed instead:
+   If review is needed:
    \`\`\`bash
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
-   \`\`\`
+   \`\`\``}
 
 ---
 
@@ -170,7 +186,8 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 4. Add implementation notes continuously, not just at the end.
 5. If a task needs splitting, create subtasks BEFORE marking parent done.
 6. Your evidence strings must be concrete and verifiable — not vague affirmations.
-7. Always provide --desc and at least one --ac when creating a task. Both are required.
+7. Always provide --desc and at least one --ac when creating a task. Both are required.${reviewRequired ? `
+8. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then spawn a review sub-agent to approve or reject. Tasks cannot be marked done without a passing review.` : ''}
 
 ---
 

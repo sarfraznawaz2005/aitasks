@@ -6,7 +6,7 @@ export const STATUS_ICON: Record<TaskStatus, string> = {
   ready:        '◎',
   in_progress:  '▶',
   blocked:      '⊘',
-  needs_review: '◈',
+  review: '◈',
   done:         '✓',
 };
 
@@ -16,7 +16,7 @@ export function statusColor(status: TaskStatus): ChalkInstance {
     case 'ready':        return chalk.blue;
     case 'in_progress':  return chalk.yellow;
     case 'blocked':      return chalk.hex('#FF5C5C');
-    case 'needs_review': return chalk.magenta;
+    case 'review': return chalk.magenta;
     case 'done':         return chalk.green;
   }
 }

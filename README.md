@@ -72,6 +72,7 @@ export AITASKS_JSON=true
 | Command | Description |
 |---|---|
 | `aitasks init` | Initialize a task database in the current project |
+| `aitasks init --with-review` | Initialize with review enforcement (agents cannot mark done without a passing review) |
 | `aitasks onboard` | Print or inject agent protocol instructions into CLAUDE.md / AGENTS.md |
 
 ### Task Discovery
@@ -79,7 +80,7 @@ export AITASKS_JSON=true
 | Command | Description |
 |---|---|
 | `aitasks list` | List all tasks, sorted by priority |
-| `aitasks list --status ready` | Filter by status (`ready`, `in_progress`, `done`, `blocked`, `needs_review`) |
+| `aitasks list --status ready` | Filter by status (`ready`, `in_progress`, `blocked`, `review`, `done`) |
 | `aitasks next` | Show the highest-priority unblocked ready task |
 | `aitasks next --claim --agent <id>` | Auto-claim and start the best task |
 | `aitasks show <id>` | Full detail on a specific task (includes time tracking) |
@@ -96,9 +97,9 @@ export AITASKS_JSON=true
 | `aitasks start <id...> --agent <id>` | Begin active work on task(s) |
 | `aitasks note <id> <text>` | Add an implementation note |
 | `aitasks check <id> <n> --evidence <text>` | Verify acceptance criterion n |
-| `aitasks done <id...> --agent <id>` | Mark task(s) complete (all criteria must be verified) |
-| `aitasks review <id...> --agent <id>` | Submit for human review |
-| `aitasks reject <id> --reason <text>` | Reject and send back to in_progress |
+| `aitasks done <id...> --agent <id>` | Mark task(s) complete (all criteria must be verified; must be in `review` status if enforcement is on) |
+| `aitasks review <id...> --agent <id>` | Submit task(s) for review (moves to `review` status) |
+| `aitasks reject <id> --reason <text>` | Reject a task in review, send it back to `in_progress` with feedback |
 | `aitasks unclaim <id> --agent <id>` | Release a task back to the pool |
 | `aitasks undo <id>` | Undo the last action on a task |
 | `aitasks delete <id...>` | Delete task(s) - does not require claiming first |
@@ -151,11 +152,49 @@ When you run `aitasks init`, it automatically injects a full agent protocol into
 You can also inject/view it manually:
 
 ```sh
-aitasks onboard               # print to stdout
+aitasks onboard               # print to stdout (reflects current review_required setting)
 aitasks onboard --append      # append to detected agent file
 aitasks onboard --file MY.md  # append to a specific file
 aitasks onboard --json        # output as JSON string
 ```
+
+The injected instructions automatically adapt to the project's review enforcement setting — if `--with-review` is enabled, agents receive the full review workflow (with `aitasks review`, sub-agent approval, and `aitasks reject`) instead of the standard completion flow.
+
+---
+
+## Review Enforcement
+
+Enable a mandatory review gate so agents cannot mark tasks done without an explicit approval step:
+
+```sh
+# Enable at init time
+aitasks init --with-review
+
+# Enable on an existing project (also replaces the agent instructions file with review-aware version)
+aitasks init --with-review  # safe to re-run; updates DB setting and rewrites agent file
+```
+
+**How it works:**
+
+1. Agent completes work and checks all acceptance criteria
+2. Agent submits for review — task moves to `review` status:
+   ```sh
+   aitasks review TASK-001 --agent $AITASKS_AGENT_ID
+   ```
+3. A separate review sub-agent inspects the implementation and either:
+   - **Approves** — moves task to done:
+     ```sh
+     aitasks done TASK-001 --agent review-agent
+     ```
+   - **Rejects** — sends it back to `in_progress` with feedback:
+     ```sh
+     aitasks reject TASK-001 --reason "Missing error handling for 404 case" --agent review-agent
+     ```
+4. If rejected, the agent addresses feedback, re-verifies criteria, and repeats from step 2.
+
+**Enforcement:** When review is required, `aitasks done` and `aitasks update --status done` both block if the task is not already in `review` status. The gate cannot be bypassed.
+
+**Board:** Tasks in `review` status appear in the **IN PROGRESS** section with a `◈` magenta indicator so they're visually distinct from actively worked tasks.
 
 ---
 

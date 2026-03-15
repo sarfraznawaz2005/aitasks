@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { requireInitialized } from '../db/index.js';
+import { requireInitialized, getReviewRequired } from '../db/index.js';
 import { getTask, updateTask, listTasks } from '../models/task.js';
 import { getTaskEvents } from '../models/event.js';
 import { jsonOut, isJsonMode, requireAgentId } from './shared.js';
@@ -19,7 +19,7 @@ const UNDOABLE_EVENTS = new Set([
 // Status transitions for undo
 const STATUS_UNDO: Record<string, TaskStatus> = {
   completed: 'in_progress',        // done -> in_progress
-  review_requested: 'in_progress', // needs_review -> in_progress
+  review_requested: 'in_progress', // review -> in_progress
   started: 'ready',                // in_progress -> ready
   claimed: 'backlog',              // ready -> backlog (unclaim)
 };
@@ -103,28 +103,29 @@ export const undoCommand = new Command('undo')
   });
 
 function undoComplete(task: import('../types.js').Task): { success: boolean; message: string; data?: unknown } {
-  // Can only undo complete if we know the previous status
-  // For simplicity, revert to in_progress
+  // When review is required, undo of done goes back to review (re-submit needed)
+  // Otherwise revert to in_progress
+  const newStatus = getReviewRequired() ? 'review' : 'in_progress';
   updateTask(task.id, {
-    status: 'in_progress',
+    status: newStatus,
     completed_at: null,
   });
   return {
     success: true,
-    message: `${task.id} reverted from done to in_progress`,
-    data: { task: task.id, previousStatus: 'done', newStatus: 'in_progress' },
+    message: `${task.id} reverted from done to ${newStatus}`,
+    data: { task: task.id, previousStatus: 'done', newStatus },
   };
 }
 
 function undoReviewRequested(task: import('../types.js').Task): { success: boolean; message: string; data?: unknown } {
-  if (task.status !== 'needs_review') {
-    return { success: false, message: `${task.id} is not in needs_review status` };
+  if (task.status !== 'review') {
+    return { success: false, message: `${task.id} is not in review status` };
   }
   updateTask(task.id, { status: 'in_progress' });
   return {
     success: true,
-    message: `${task.id} reverted from needs_review to in_progress`,
-    data: { task: task.id, previousStatus: 'needs_review', newStatus: 'in_progress' },
+    message: `${task.id} reverted from review to in_progress`,
+    data: { task: task.id, previousStatus: 'review', newStatus: 'in_progress' },
   };
 }
 
