@@ -447,7 +447,11 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return; }
       if (key.downArrow) { setSelectedIdx(i => Math.min(items.length - 1, i + 1)); return; }
       if (key.backspace || key.delete) { setSearchQuery(q => q.slice(0, -1)); return; }
-      if (input && !key.ctrl && !key.meta) { setSearchQuery(q => q + input); return; }
+      if (input && !key.ctrl && !key.meta) {
+        if (Date.now() < suppressUntilRef.current) return;
+        setSearchQuery(q => q + input);
+        return;
+      }
       return;
     }
 
@@ -497,6 +501,9 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const leftMaxOffsetRef     = useRef(0);
   const rightMetricsRef      = useRef({ maxOffset: 0, visibleH: 0 });
   const dragRef              = useRef<'left' | 'right' | null>(null);
+  const visibleLeftRowsRef   = useRef<LeftRow[]>([]);
+  const suppressUntilRef     = useRef(0);
+  const searchActiveRef      = useRef(false);
 
   useEffect(() => {
     // 1002h = button-event + drag motion; 1006h = SGR extended coords
@@ -504,7 +511,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 
     const jumpToRow = (row: number, pane: 'left' | 'right') => {
       // row is 0-indexed terminal row; content starts after border+header+divider (row 3)
-      const contentStart = 3;
+      const contentStart = 4;
       const visH = Math.max(1, rowsRef.current - 4);
       const relRow = Math.max(0, Math.min(row - contentStart, visH - 1));
       const ratio  = visH > 1 ? relRow / (visH - 1) : 0;
@@ -524,6 +531,9 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
         const col       = parseInt(sgr[2]!, 10) - 1;
         const row       = parseInt(sgr[3]!, 10) - 1;
         const isRelease = sgr[4] === 'm';
+
+        // Always suppress Ink's useInput from seeing leaked SGR bytes
+        suppressUntilRef.current = Date.now() + 150;
 
         // Scroll wheel
         if (btn === 64 || btn === 65) {
@@ -549,7 +559,15 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             // Decide which scrollbar was clicked to start drag tracking
             if (col === leftSbCol)  dragRef.current = 'left';
             else if (col >= rightSbCol) dragRef.current = 'right';
-            else dragRef.current = null;
+            else {
+              dragRef.current = null;
+              // Click inside left pane content → select that task row
+              if (col < leftWidthRef.current - 1) {
+                const visRowIdx = row - (searchActiveRef.current ? 4 : 3);
+                const clicked = visibleLeftRowsRef.current[visRowIdx];
+                if (clicked?.kind === 'item') setSelectedIdx(clicked.itemIdx);
+              }
+            }
           }
 
           if (dragRef.current === 'left')  jumpToRow(row, 'left');
@@ -574,7 +592,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       }
     };
 
-    process.stdin.on('data', onData);
+    process.stdin.prependListener('data', onData);
     return () => {
       process.stdout.write('\x1b[?1006l\x1b[?1002l');
       process.stdin.off('data', onData);
@@ -587,10 +605,12 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const leftVisibleH    = Math.max(1, rows - 4);
   const leftTotalRows   = leftRows.length;
   const leftMaxOffset   = Math.max(0, leftTotalRows - leftVisibleH);
-  leftMaxOffsetRef.current = leftMaxOffset;
+  leftMaxOffsetRef.current    = leftMaxOffset;
+  searchActiveRef.current     = mode === 'search' || !!searchQuery;
   const leftOffset      = Math.min(leftScrollOffset, leftMaxOffset);
   const rawLeftRows     = leftRows.slice(leftOffset, leftOffset + leftVisibleH);
   const visibleLeftRows = rawLeftRows[0]?.kind === 'date-sep' ? rawLeftRows.slice(1) : rawLeftRows;
+  visibleLeftRowsRef.current = visibleLeftRows;
   const leftScrollbar   = (() => {
     const bar = Array<string>(leftVisibleH).fill(' ');
     if (leftTotalRows > leftVisibleH) {
