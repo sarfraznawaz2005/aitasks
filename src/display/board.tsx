@@ -162,7 +162,13 @@ const wrapAnsiLine = (line: string, maxW: number): string[] => {
   return result;
 };
 
-const RightPane: React.FC<{ task: Task | undefined; width: number; height: number; scrollOffset: number }> = ({ task, width, height, scrollOffset }) => {
+const RightPane: React.FC<{
+  task: Task | undefined;
+  width: number;
+  height: number;
+  scrollOffset: number;
+  metricsRef?: React.MutableRefObject<{ maxOffset: number; visibleH: number }>;
+}> = ({ task, width, height, scrollOffset, metricsRef }) => {
   const { lines, contentW } = useMemo(() => {
     if (!task) return { lines: [], contentW: 20 };
 
@@ -236,6 +242,7 @@ const RightPane: React.FC<{ task: Task | undefined; width: number; height: numbe
   const visibleH     = Math.max(3, height - 2);
   const maxOffset    = Math.max(0, totalLines - visibleH);
   const offset       = Math.min(scrollOffset, maxOffset);
+  if (metricsRef) metricsRef.current = { maxOffset, visibleH };
   const visibleLines = lines.slice(offset, offset + visibleH);
 
   const scrollbar = useMemo(() => {
@@ -481,17 +488,44 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   leftWidthRef.current = leftWidth;
   const scrollOffsetRef = useRef(scrollOffset);
   scrollOffsetRef.current = scrollOffset;
+  const colsRef              = useRef(cols);
+  colsRef.current            = cols;
+  const rowsRef              = useRef(rows);
+  rowsRef.current            = rows;
+  const leftScrollOffsetRef  = useRef(leftScrollOffset);
+  leftScrollOffsetRef.current = leftScrollOffset;
+  const leftMaxOffsetRef     = useRef(0);
+  const rightMetricsRef      = useRef({ maxOffset: 0, visibleH: 0 });
+  const dragRef              = useRef<'left' | 'right' | null>(null);
 
   useEffect(() => {
-    process.stdout.write('\x1b[?1000h\x1b[?1006h');
+    // 1002h = button-event + drag motion; 1006h = SGR extended coords
+    process.stdout.write('\x1b[?1002h\x1b[?1006h');
+
+    const jumpToRow = (row: number, pane: 'left' | 'right') => {
+      // row is 0-indexed terminal row; content starts after border+header+divider (row 3)
+      const contentStart = 3;
+      const visH = Math.max(1, rowsRef.current - 4);
+      const relRow = Math.max(0, Math.min(row - contentStart, visH - 1));
+      const ratio  = visH > 1 ? relRow / (visH - 1) : 0;
+      if (pane === 'left') {
+        setLeftScrollOffset(Math.round(ratio * leftMaxOffsetRef.current));
+      } else {
+        setScrollOffset(Math.round(ratio * rightMetricsRef.current.maxOffset));
+      }
+    };
 
     const onData = (buf: Buffer) => {
       const str = buf.toString('latin1');
 
-      const sgr = str.match(/\x1b\[<(\d+);(\d+);(\d+)M/);
+      const sgr = str.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
       if (sgr) {
-        const btn = parseInt(sgr[1]!, 10);
-        const col = parseInt(sgr[2]!, 10) - 1;
+        const btn       = parseInt(sgr[1]!, 10);
+        const col       = parseInt(sgr[2]!, 10) - 1;
+        const row       = parseInt(sgr[3]!, 10) - 1;
+        const isRelease = sgr[4] === 'm';
+
+        // Scroll wheel
         if (btn === 64 || btn === 65) {
           if (col < leftWidthRef.current) {
             if (btn === 64) setSelectedIdx(i => Math.max(0, i - 1));
@@ -500,10 +534,31 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             if (btn === 64) setScrollOffset(o => Math.max(0, o - 8));
             if (btn === 65) setScrollOffset(o => o + 8);
           }
+          return;
+        }
+
+        // Mouse release — end drag
+        if (isRelease) { dragRef.current = null; return; }
+
+        // Left-button press (btn=0) or drag-motion (btn=32)
+        if (btn === 0 || btn === 32) {
+          const leftSbCol  = leftWidthRef.current - 2;
+          const rightSbCol = colsRef.current - 3;
+
+          if (btn === 0) {
+            // Decide which scrollbar was clicked to start drag tracking
+            if (col === leftSbCol)  dragRef.current = 'left';
+            else if (col >= rightSbCol) dragRef.current = 'right';
+            else dragRef.current = null;
+          }
+
+          if (dragRef.current === 'left')  jumpToRow(row, 'left');
+          if (dragRef.current === 'right') jumpToRow(row, 'right');
         }
         return;
       }
 
+      // X10 legacy fallback — scroll wheel only
       if (buf[0] === 0x1b && buf[1] === 0x5b && buf[2] === 0x4d) {
         const btn = (buf[3] ?? 32) - 32;
         const col = (buf[4] ?? 33) - 33;
@@ -521,7 +576,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 
     process.stdin.on('data', onData);
     return () => {
-      process.stdout.write('\x1b[?1006l\x1b[?1000l');
+      process.stdout.write('\x1b[?1006l\x1b[?1002l');
       process.stdin.off('data', onData);
     };
   }, []);
@@ -532,6 +587,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const leftVisibleH    = Math.max(1, rows - 4);
   const leftTotalRows   = leftRows.length;
   const leftMaxOffset   = Math.max(0, leftTotalRows - leftVisibleH);
+  leftMaxOffsetRef.current = leftMaxOffset;
   const leftOffset      = Math.min(leftScrollOffset, leftMaxOffset);
   const rawLeftRows     = leftRows.slice(leftOffset, leftOffset + leftVisibleH);
   const visibleLeftRows = rawLeftRows[0]?.kind === 'date-sep' ? rawLeftRows.slice(1) : rawLeftRows;
@@ -657,7 +713,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
         >
           {mode === 'move' && selectedTask
             ? <StatusPicker task={selectedTask} />
-            : <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} />
+            : <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} metricsRef={rightMetricsRef} />
           }
         </Box>
 
