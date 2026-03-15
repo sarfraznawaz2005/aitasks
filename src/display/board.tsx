@@ -302,6 +302,19 @@ const StatusPicker: React.FC<{ task: Task }> = ({ task }) => (
   </Box>
 );
 
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Simple date key (calendar day) from unix milliseconds
+function getDateKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function formatDateLabel(ts: number): string {
+  const d = new Date(ts);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
 // Simple text wrapper
 function wrapText(text: string, maxW: number): string[] {
   const words = text.split(/\s+/);
@@ -326,6 +339,7 @@ type Mode = 'normal' | 'move' | 'search';
 type LeftRow =
   | { kind: 'spacer' }
   | { kind: 'section'; section: 'in_progress' | 'done'; count: number; total?: number }
+  | { kind: 'date-sep'; label: string }
   | { kind: 'item'; item: TreeItem; itemIdx: number };
 
 const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) => {
@@ -368,6 +382,8 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     const doneCnt = items.filter(i => i.section === 'done').length;
     const result: LeftRow[] = [];
     let firstSection = true;
+    let prevDateKey: string | null = null;
+    let prevSection: Section | null = null;
     for (let idx = 0; idx < items.length; idx++) {
       const item = items[idx]!;
       if (item.showSectionHeader && item.section !== 'middle') {
@@ -379,7 +395,22 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           total: item.section === 'in_progress' ? ipTotal : undefined,
         });
         firstSection = false;
+        prevDateKey = null;
+      } else if (item.section !== prevSection) {
+        prevDateKey = null;
       }
+      // Insert a thin separator between root-level tasks on different calendar days
+      if (item.indent === 0) {
+        const ts = item.section === 'done'
+          ? (item.task.completed_at ?? item.task.created_at)
+          : item.task.created_at;
+        const dateKey = getDateKey(ts);
+        if (prevDateKey !== null && prevDateKey !== dateKey) {
+          result.push({ kind: 'date-sep', label: formatDateLabel(ts) });
+        }
+        prevDateKey = dateKey;
+      }
+      prevSection = item.section;
       result.push({ kind: 'item', item, itemIdx: idx });
     }
     return result;
@@ -502,7 +533,8 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const leftTotalRows   = leftRows.length;
   const leftMaxOffset   = Math.max(0, leftTotalRows - leftVisibleH);
   const leftOffset      = Math.min(leftScrollOffset, leftMaxOffset);
-  const visibleLeftRows = leftRows.slice(leftOffset, leftOffset + leftVisibleH);
+  const rawLeftRows     = leftRows.slice(leftOffset, leftOffset + leftVisibleH);
+  const visibleLeftRows = rawLeftRows[0]?.kind === 'date-sep' ? rawLeftRows.slice(1) : rawLeftRows;
   const leftScrollbar   = (() => {
     const bar = Array<string>(leftVisibleH).fill(' ');
     if (leftTotalRows > leftVisibleH) {
@@ -575,6 +607,20 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             const sb = <Box width={1}><Text dimColor>{leftScrollbar[i]}</Text></Box>;
             if (row.kind === 'spacer') {
               return <Box key={`sp-${leftOffset + i}`}><Box flexGrow={1}><Text> </Text></Box>{sb}</Box>;
+            }
+            if (row.kind === 'date-sep') {
+              const dashW = Math.max(0, Math.floor((leftInner - 2 - row.label.length - 2) / 2));
+              const dashes = '╌'.repeat(dashW);
+              return (
+                <Box key={`ds-${leftOffset + i}`}>
+                  <Box flexGrow={1} paddingLeft={1}>
+                    <Text dimColor>{dashes}</Text>
+                    <Text dimColor> {row.label} </Text>
+                    <Text dimColor>{dashes}</Text>
+                  </Box>
+                  {sb}
+                </Box>
+              );
             }
             if (row.kind === 'section') {
               const color = row.section === 'in_progress' ? 'yellow' : 'green';
@@ -649,6 +695,8 @@ const StaticCard: React.FC<{ task: Task }> = ({ task }) => {
 
 const StaticSection: React.FC<{ status: TaskStatus; tasks: Task[] }> = ({ status, tasks }) => {
   const color = STATUS_COLORS[status];
+  const getTaskDateKey = (t: Task) =>
+    getDateKey(status === 'done' ? (t.completed_at ?? t.created_at) : t.created_at);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color} marginBottom={1}>
       <Box paddingLeft={1}>
@@ -657,7 +705,22 @@ const StaticSection: React.FC<{ status: TaskStatus; tasks: Task[] }> = ({ status
       </Box>
       {tasks.length === 0
         ? <Box paddingLeft={3}><Text dimColor>empty</Text></Box>
-        : tasks.map(t => <StaticCard key={t.id} task={t} />)}
+        : tasks.map((t, i) => {
+            const prev = tasks[i - 1];
+            const showSep = prev != null && getTaskDateKey(prev) !== getTaskDateKey(t);
+            return (
+              <React.Fragment key={t.id}>
+                {showSep && (
+                  <Box paddingLeft={2} paddingRight={1}>
+                    <Text dimColor>{'╌'.repeat(4)} </Text>
+                    <Text dimColor>{formatDateLabel(status === 'done' ? (t.completed_at ?? t.created_at) : t.created_at)} </Text>
+                    <Text dimColor>{'╌'.repeat(4)}</Text>
+                  </Box>
+                )}
+                <StaticCard task={t} />
+              </React.Fragment>
+            );
+          })}
     </Box>
   );
 };
