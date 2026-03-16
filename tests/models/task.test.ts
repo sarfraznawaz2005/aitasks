@@ -20,6 +20,7 @@ import {
   unclaimTask,
   getNextTask,
   getStats,
+  heartbeat,
 } from '../../src/models/task.js';
 
 let ctx: TestContext;
@@ -734,6 +735,57 @@ describe('completeTask — review enforcement', () => {
     startTask(task.id, 'agent-1');
     const { error } = completeTask(task.id, 'agent-1');
     expect(error).toContain('aitasks review');
+  });
+
+  test('blocks self-approval: assigned agent cannot approve their own review', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    // Same agent tries to approve with their own ID
+    const { task: result, error } = completeTask(task.id, 'agent-1');
+    expect(result).toBeNull();
+    expect(error).toContain('Self-approval blocked');
+  });
+
+  test('blocks self-approval: review submitter cannot approve even with different task assignment', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    // agent-2 submits the review (not the assigned agent)
+    updateTask(task.id, { status: 'in_progress' }); // reset to allow review by different agent
+    reviewTask(task.id, 'agent-1'); // agent-1 submits review
+    // agent-1 tries to approve — blocked because they submitted the review
+    const { task: result, error } = completeTask(task.id, 'agent-1');
+    expect(result).toBeNull();
+    expect(error).toContain('Self-approval blocked');
+  });
+
+  test('allows approval by a genuinely different registered agent', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    // Register the reviewer via heartbeat (simulates a real sub-agent spawning)
+    heartbeat('reviewer-agent');
+    const { task: done, error } = completeTask(task.id, 'reviewer-agent');
+    expect(error).toBeUndefined();
+    expect(done!.status).toBe('done');
+  });
+
+  test('blocks approval from an unregistered agent (fake ID bypass)', () => {
+    setReviewRequired(true);
+    const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
+    startTask(task.id, 'agent-1');
+    checkCriterion(task.id, 0, 'proof', 'agent-1');
+    reviewTask(task.id, 'agent-1');
+    // Fake ID never registered — should be blocked
+    const { task: result, error } = completeTask(task.id, 'fake-review-agent');
+    expect(result).toBeNull();
+    expect(error).toContain('Unknown review agent');
   });
 });
 

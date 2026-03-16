@@ -1,5 +1,5 @@
 import { getDb, getReviewRequired } from '../db/index.js';
-import { logEvent } from './event.js';
+import { logEvent, getTaskEvents } from './event.js';
 import type { SQLQueryBindings } from 'bun:sqlite';
 import type {
   Task,
@@ -351,17 +351,55 @@ export function completeTask(
   }
 
   // Enforce review gate if enabled
-  if (getReviewRequired() && task.status !== 'review') {
-    return {
-      task: null,
-      error:
-        'Review required: submit this task for review first.\n' +
-        '  1. aitasks review <taskId> --agent $AITASKS_AGENT_ID\n' +
-        '  2. Spawn a review sub-agent to inspect the work\n' +
-        '  3. Review agent approves: aitasks done <taskId> --agent <review-agent-id>\n' +
-        '     Review agent rejects: aitasks reject <taskId> --reason "<feedback>"\n' +
-        '  Tasks cannot be moved to Done without a passing review.',
-    };
+  if (getReviewRequired()) {
+    if (task.status !== 'review') {
+      return {
+        task: null,
+        error:
+          'Review required: submit this task for review first.\n' +
+          '  1. aitasks review <taskId> --agent $AITASKS_AGENT_ID\n' +
+          '  2. Spawn a review sub-agent to inspect the work\n' +
+          '  3. Review agent approves: aitasks done <taskId> --agent <review-agent-id>\n' +
+          '     Review agent rejects: aitasks reject <taskId> --reason "<feedback>"\n' +
+          '  Tasks cannot be moved to Done without a passing review.',
+      };
+    }
+
+    // Prevent the implementing agent from self-approving their own review
+    if (task.assigned_to && task.assigned_to === agentId) {
+      return {
+        task: null,
+        error:
+          `Self-approval blocked: ${agentId} is the implementing agent and cannot approve their own review.\n` +
+          `  A separate review sub-agent must run: aitasks done ${taskId} --agent <review-agent-id>`,
+      };
+    }
+
+    // Prevent the agent who submitted the review from also approving it
+    const events = getTaskEvents(taskId);
+    const reviewEvent = [...events].reverse().find(e => e.event_type === 'review_requested');
+    if (reviewEvent?.agent_id && reviewEvent.agent_id === agentId) {
+      return {
+        task: null,
+        error:
+          `Self-approval blocked: ${agentId} submitted this task for review and cannot also approve it.\n` +
+          `  A separate review sub-agent must run: aitasks done ${taskId} --agent <review-agent-id>`,
+      };
+    }
+
+    // Require the approving agent to be a registered agent (must have previously
+    // interacted with the system via claim/start/heartbeat). This blocks fake agent
+    // ID strings that were never actually spawned as a real sub-agent.
+    const knownAgent = db.query(`SELECT id FROM agents WHERE id = ?`).get(agentId) as { id: string } | null;
+    if (!knownAgent) {
+      return {
+        task: null,
+        error:
+          `Unknown review agent: '${agentId}' has not registered with the system.\n` +
+          `  A real review sub-agent must register first by running any aitasks command\n` +
+          `  (e.g. aitasks heartbeat --agent ${agentId}) before it can approve a review.`,
+      };
+    }
   }
 
   const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });

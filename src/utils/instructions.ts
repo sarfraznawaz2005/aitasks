@@ -136,17 +136,22 @@ ${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
    \`\`\`bash
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
+   **STOP HERE. Do not run \`aitasks done\` yourself.** The system will block self-approval.
 
-4. **IMMEDIATELY spawn a review sub-agent** — do NOT move to other tasks until review resolves.
-   The task is still incomplete. The review sub-agent must either:
-   - **Approve** (moves task to done):
-     \`\`\`bash
-     aitasks done TASK-001 --agent <review-agent-id>
-     \`\`\`
-   - **Reject** (sends task back to in_progress with feedback):
-     \`\`\`bash
-     aitasks reject TASK-001 --reason "<specific feedback>" --agent <review-agent-id>
-     \`\`\`
+4. **IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID** to inspect the implementation.
+   The review sub-agent must first register itself, then approve or reject:
+   \`\`\`bash
+   # Review sub-agent registers itself
+   aitasks heartbeat --agent <review-agent-id>
+
+   # Approve (moves task to done):
+   aitasks done TASK-001 --agent <review-agent-id>
+
+   # OR reject (sends task back to in_progress with feedback):
+   aitasks reject TASK-001 --reason "<specific feedback>" --agent <review-agent-id>
+   \`\`\`
+   The task is still incomplete until the review agent approves it.
+   **The system will block approval from any agent that has not registered or that submitted the review itself.**
 
 5. If rejected: address the feedback, re-check criteria, and repeat from step 3.
 
@@ -195,7 +200,7 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 6. If a task needs splitting, create subtasks BEFORE marking parent done.
 7. Your evidence strings must be concrete and verifiable — not vague affirmations.
 8. Always provide --desc and at least one --ac when creating a task. Both are required.${reviewRequired ? `
-9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent. Do NOT work on other tasks until the review resolves. A task is only complete when its status is \`done\`.` : ''}
+9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID. Do NOT call \`aitasks done\` yourself after submitting for review — the system blocks self-approval.` : ''}
 
 ---
 

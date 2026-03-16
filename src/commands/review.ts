@@ -55,10 +55,10 @@ export const reviewCommand = new Command('review')
           id: taskId,
           success: true,
           status: 'review',
-          next_action: 'REQUIRED: Spawn a review sub-agent immediately. This task is NOT complete until the review agent approves it.',
+          next_action: `REQUIRED: Spawn a review sub-agent immediately with a DIFFERENT agent ID (e.g. review-${taskId.toLowerCase()}). Do NOT call aitasks done yourself — the system will block self-approval.`,
           review_commands: {
-            approve: `aitasks done ${taskId} --agent <review-agent-id>`,
-            reject: `aitasks reject ${taskId} --reason "<specific feedback>" --agent <review-agent-id>`,
+            approve: `aitasks done ${taskId} --agent review-${taskId.toLowerCase()}`,
+            reject: `aitasks reject ${taskId} --reason "<specific feedback>" --agent review-${taskId.toLowerCase()}`,
           },
         });
       } else {
@@ -74,10 +74,16 @@ export const reviewCommand = new Command('review')
           console.log(`  You MUST ${chalk.bold('immediately spawn a review sub-agent')} to inspect the implementation.`);
           console.log(chalk.dim('  The task remains incomplete until the review agent moves it to done.'));
           console.log('');
+          console.log(chalk.yellow('  ✖ ') + chalk.bold('STOP — do NOT run `aitasks done` yourself.'));
+          console.log(chalk.dim('  The system will block self-approval. A separate agent must do the review.'));
+          console.log('');
           console.log(chalk.dim('  Review sub-agent steps:'));
-          console.log(chalk.dim(`  1. Examine implementation and verify all acceptance criteria`));
-          console.log(chalk.dim(`  2. Approve:  aitasks done ${task.id} --agent <review-agent-id>`));
-          console.log(chalk.dim(`     Reject:   aitasks reject ${task.id} --reason "<feedback>" --agent <review-agent-id>`));
+          console.log(chalk.dim(`  1. Spawn a sub-agent with a unique agent ID, e.g. review-${task.id.toLowerCase()}`));
+          console.log(chalk.dim(`  2. Sub-agent registers:  aitasks heartbeat --agent review-${task.id.toLowerCase()}`));
+          console.log(chalk.dim(`  3. Sub-agent examines implementation and verifies all acceptance criteria`));
+          console.log(chalk.dim(`  4. Approve:  aitasks done ${task.id} --agent review-${task.id.toLowerCase()}`));
+          console.log(chalk.dim(`     Reject:   aitasks reject ${task.id} --reason "<feedback>" --agent review-${task.id.toLowerCase()}`));
+          console.log(chalk.dim(`  The system will reject approval from unregistered or self-approving agents.`));
         } else {
           console.log(chalk.dim(`     Approve: aitasks done ${task.id} --agent <review-agent-id>`));
           console.log(chalk.dim(`     Reject:  aitasks reject ${task.id} --reason "<feedback>"`));
