@@ -6,7 +6,12 @@ export function getAgentInstructions(version: string, opts: { reviewRequired?: b
   return `${INSTRUCTIONS_START_MARKER}
 
 ## AITasks — Agent Task Protocol (v${version})
-
+${reviewRequired ? `
+> ⚠️  **REVIEW ENFORCEMENT IS ENABLED ON THIS PROJECT**
+> You cannot mark any task done directly. Every task requires a review step:
+> \`aitasks review\` → spawn review sub-agent → \`aitasks done\`
+> Tasks are only complete when their status is \`done\`. All other statuses mean work is still in progress.
+` : ''}
 You have access to the \`aitasks\` CLI. This is your single source of truth for
 all work in this project. Follow this protocol without exception.
 
@@ -63,7 +68,7 @@ This finds the best task, claims it, and starts it in one command.
    aitasks start TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
 
-**Bulk operations:** You can claim, start, review, or complete multiple tasks at once:
+**Bulk operations:** You can claim, start, or complete multiple tasks at once:
 \`\`\`bash
 aitasks claim TASK-001 TASK-002 TASK-003 --agent $AITASKS_AGENT_ID
 aitasks start TASK-001 TASK-002 --agent $AITASKS_AGENT_ID
@@ -111,6 +116,8 @@ aitasks deps TASK-001    # Shows what this task is blocked by and what it blocks
 
 ### Completing a Task${reviewRequired ? ' ⚠️  REVIEW REQUIRED' : ''}
 
+> **A task is only complete when its status is \`done\`. Verified criteria, implementation notes, and \`review\` status do NOT mean the task is done. You have not finished a task until \`aitasks done\` has succeeded.**
+
 You MUST verify every acceptance criterion before marking done.
 
 1. View all criteria:
@@ -130,7 +137,8 @@ ${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
 
-4. Spawn a review sub-agent to inspect the implementation and either:
+4. **IMMEDIATELY spawn a review sub-agent** — do NOT move to other tasks until review resolves.
+   The task is still incomplete. The review sub-agent must either:
    - **Approve** (moves task to done):
      \`\`\`bash
      aitasks done TASK-001 --agent <review-agent-id>
@@ -140,15 +148,14 @@ ${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
      aitasks reject TASK-001 --reason "<specific feedback>" --agent <review-agent-id>
      \`\`\`
 
-5. If rejected: address the feedback, re-check criteria, and repeat from step 3.` : `3. Mark done (will FAIL if any criterion is unchecked):
+5. If rejected: address the feedback, re-check criteria, and repeat from step 3.
+
+> The task is only done when \`aitasks done\` completes successfully. \`review\` status means awaiting approval — it is not done.` : `3. Mark done (will FAIL if any criterion is unchecked):
    \`\`\`bash
    aitasks done TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
 
-   If review is needed:
-   \`\`\`bash
-   aitasks review TASK-001 --agent $AITASKS_AGENT_ID
-   \`\`\``}
+> The task is only done when \`aitasks done\` completes successfully. Do not treat a task as finished until you see the done confirmation.`}
 
 ---
 
@@ -162,8 +169,8 @@ aitasks undo TASK-001    # Undoes the last action (claim, start, done, check, no
 Undoable actions:
 - claimed → unclaims the task
 - started → reverts to ready status
-- completed → reverts to in_progress
-- review_requested → reverts to in_progress
+- completed → reverts to in_progress${reviewRequired ? `
+- review_requested → reverts to in_progress` : ''}
 - criterion_checked → removes the verification
 - note_added → removes the implementation note
 
@@ -180,14 +187,15 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 
 ### Rules
 
-1. Never mark a task done without checking EVERY acceptance criterion with evidence.
-2. Never start a task you haven't claimed.
-3. Never silently abandon a task — always unclaim with a reason.
-4. Add implementation notes continuously, not just at the end.
-5. If a task needs splitting, create subtasks BEFORE marking parent done.
-6. Your evidence strings must be concrete and verifiable — not vague affirmations.
-7. Always provide --desc and at least one --ac when creating a task. Both are required.${reviewRequired ? `
-8. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then spawn a review sub-agent to approve or reject. Tasks cannot be marked done without a passing review.` : ''}
+1. **A task is only complete when its status is \`done\`.** No other status — not criteria-verified, not \`review\`, not \`in_progress\` — counts as complete. Your work on a task is not finished until \`aitasks done\` succeeds.
+2. Never mark a task done without checking EVERY acceptance criterion with evidence.
+3. Never start a task you haven't claimed.
+4. Never silently abandon a task — always unclaim with a reason.
+5. Add implementation notes continuously, not just at the end.
+6. If a task needs splitting, create subtasks BEFORE marking parent done.
+7. Your evidence strings must be concrete and verifiable — not vague affirmations.
+8. Always provide --desc and at least one --ac when creating a task. Both are required.${reviewRequired ? `
+9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent. Do NOT work on other tasks until the review resolves. A task is only complete when its status is \`done\`.` : ''}
 
 ---
 
@@ -204,8 +212,9 @@ aitasks claim <id...> --agent <id>          Claim task(s) - supports patterns li
 aitasks start <id...> --agent <id>          Begin work on task(s)
 aitasks note <id> <text> --agent <id>       Add implementation note
 aitasks check <id> <n> --evidence <text>    Verify acceptance criterion n
-aitasks done <id...> --agent <id>           Mark task(s) complete
-aitasks review <id...> --agent <id>         Request human review
+aitasks done <id...> --agent <id>           Mark task(s) complete (only valid completion)${reviewRequired ? `
+aitasks review <id...> --agent <id>         Submit for review — then spawn review sub-agent immediately
+aitasks reject <id> --reason <r>            Reject review — sends back to in_progress` : ''}
 aitasks block <id> --on <id,...>            Mark as blocked
 aitasks unblock <id> --from <id>            Remove a blocker
 aitasks unclaim <id> --agent <id>           Release task

@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { requireInitialized } from '../db/index.js';
+import { requireInitialized, getReviewRequired } from '../db/index.js';
 import { getNextTask, claimTask, startTask } from '../models/task.js';
 import { renderTaskDetail } from '../display/detail.js';
 import { agentId, jsonOut, isJsonMode, requireAgentId } from './shared.js';
@@ -23,9 +23,10 @@ export const nextCommand = new Command('next')
     const aid = opts.claim ? requireAgentId(opts.agent, 'next --claim') : (agentId(opts.agent) ?? undefined);
 
     const task = getNextTask(aid);
+    const reviewRequired = getReviewRequired();
 
     if (!task) {
-      if (json) return jsonOut(true, null);
+      if (json) return jsonOut(true, { task: null, review_required: reviewRequired });
       console.log('');
       console.log(chalk.dim('  No ready tasks available. Check backlog with: aitasks list'));
       console.log('');
@@ -51,19 +52,26 @@ export const nextCommand = new Command('next')
 
       const updatedTask = startResult.task!;
 
-      if (json) return jsonOut(true, updatedTask);
+      if (json) return jsonOut(true, { ...updatedTask, review_required: reviewRequired });
 
       console.log('');
       console.log(chalk.green('  ✓') + `  Claimed and started ${chalk.bold(updatedTask.id)}: ${updatedTask.title}`);
       console.log(chalk.dim(`     Priority: ${updatedTask.priority}  ·  Type: ${updatedTask.type}`));
       console.log(chalk.dim(`     Agent: ${aid}`));
+      if (reviewRequired) {
+        console.log('');
+        console.log(chalk.yellow('  ⚠ ') + chalk.bold(' Review enforcement is ON.') + chalk.dim(' When done: aitasks review → spawn review sub-agent → aitasks done'));
+      }
       console.log('');
       return;
     }
 
-    if (json) return jsonOut(true, task);
+    if (json) return jsonOut(true, { ...task, review_required: reviewRequired });
 
     console.log(renderTaskDetail(task));
+    if (reviewRequired) {
+      console.log(chalk.yellow('  ⚠ ') + chalk.bold(' Review enforcement is ON.') + chalk.dim(' When done: aitasks review → spawn review sub-agent → aitasks done'));
+    }
     console.log(chalk.dim(`  Claim it: aitasks claim ${task.id} --agent <your-id>`));
     console.log('');
   });

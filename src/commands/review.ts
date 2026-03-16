@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { requireInitialized } from '../db/index.js';
+import { requireInitialized, getReviewRequired } from '../db/index.js';
 import { reviewTask, listTasks } from '../models/task.js';
 import { requireAgentId, jsonOut, isJsonMode, exitError } from './shared.js';
 import { resolveTaskIds, isPattern } from '../utils/pattern.js';
@@ -32,7 +32,8 @@ export const reviewCommand = new Command('review')
       process.exit(1);
     }
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
+    const reviewRequired = getReviewRequired();
+    const results: { id: string; success: boolean; error?: string; status?: string; next_action?: string; review_commands?: { approve: string; reject: string } }[] = [];
     let allSuccess = true;
 
     for (const taskId of resolvedIds) {
@@ -49,14 +50,38 @@ export const reviewCommand = new Command('review')
         continue;
       }
 
-      results.push({ id: taskId, success: true });
+      if (reviewRequired) {
+        results.push({
+          id: taskId,
+          success: true,
+          status: 'review',
+          next_action: 'REQUIRED: Spawn a review sub-agent immediately. This task is NOT complete until the review agent approves it.',
+          review_commands: {
+            approve: `aitasks done ${taskId} --agent <review-agent-id>`,
+            reject: `aitasks reject ${taskId} --reason "<specific feedback>" --agent <review-agent-id>`,
+          },
+        });
+      } else {
+        results.push({ id: taskId, success: true, status: 'review' });
+      }
 
       if (!json) {
         console.log('');
         console.log(chalk.magenta('  ◈') + `  ${chalk.bold(task.id)} submitted for review`);
-        console.log(chalk.dim(`     Spawn a review sub-agent to inspect the implementation.`));
-        console.log(chalk.dim(`     Approve: aitasks done ${task.id} --agent <review-agent-id>`));
-        console.log(chalk.dim(`     Reject:  aitasks reject ${task.id} --reason "<feedback>"`));
+        if (reviewRequired) {
+          console.log(chalk.yellow('  ⚠ ') + chalk.bold(' This task is NOT complete yet.'));
+          console.log('');
+          console.log(`  You MUST ${chalk.bold('immediately spawn a review sub-agent')} to inspect the implementation.`);
+          console.log(chalk.dim('  The task remains incomplete until the review agent moves it to done.'));
+          console.log('');
+          console.log(chalk.dim('  Review sub-agent steps:'));
+          console.log(chalk.dim(`  1. Examine implementation and verify all acceptance criteria`));
+          console.log(chalk.dim(`  2. Approve:  aitasks done ${task.id} --agent <review-agent-id>`));
+          console.log(chalk.dim(`     Reject:   aitasks reject ${task.id} --reason "<feedback>" --agent <review-agent-id>`));
+        } else {
+          console.log(chalk.dim(`     Approve: aitasks done ${task.id} --agent <review-agent-id>`));
+          console.log(chalk.dim(`     Reject:  aitasks reject ${task.id} --reason "<feedback>"`));
+        }
       }
     }
 

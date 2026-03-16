@@ -10,6 +10,19 @@ export const initCommand = new Command('init')
   .description('Initialize AITasks in the current project')
   .option('--skip-agent-file', 'Skip injecting agent instructions into CLAUDE.md/AGENTS.md/GEMINI.md')
   .option('--with-review', 'Enforce review gate: agents cannot mark tasks done without a passing review')
+  .addHelpText('after', `
+Examples:
+  $ aitasks init
+      Initialize in current directory, inject agent instructions into CLAUDE.md/AGENTS.md.
+
+  $ aitasks init --with-review
+      Same as above, but enable the review enforcement gate. Agents must run
+      \`aitasks review\` and spawn a review sub-agent before any task can be
+      marked done. Running this on an existing project also updates the agent
+      instructions file with the review workflow.
+
+  $ aitasks init --skip-agent-file
+      Initialize without touching any CLAUDE.md / AGENTS.md file.`)
   .action(async (opts: { skipAgentFile?: boolean; withReview?: boolean }) => {
     const root = findProjectRoot();
     const taskieDir = join(root, '.aitasks');

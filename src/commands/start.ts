@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { requireInitialized } from '../db/index.js';
+import { requireInitialized, getReviewRequired } from '../db/index.js';
 import { startTask, listTasks } from '../models/task.js';
 import { jsonOut, requireAgentId, isJsonMode, exitError } from './shared.js';
 import { resolveTaskIds, isPattern } from '../utils/pattern.js';
@@ -32,7 +32,8 @@ export const startCommand = new Command('start')
       process.exit(1);
     }
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
+    const reviewRequired = getReviewRequired();
+    const results: { id: string; success: boolean; error?: string; review_required?: boolean }[] = [];
     let allSuccess = true;
 
     for (const taskId of resolvedIds) {
@@ -49,7 +50,7 @@ export const startCommand = new Command('start')
         continue;
       }
 
-      results.push({ id: taskId, success: true });
+      results.push({ id: taskId, success: true, review_required: reviewRequired });
 
       if (!json) {
         console.log('');
@@ -57,12 +58,15 @@ export const startCommand = new Command('start')
         if (task.acceptance_criteria.length > 0) {
           console.log(chalk.dim(`     ${task.acceptance_criteria.length} acceptance criteria to verify before done`));
         }
+        if (reviewRequired) {
+          console.log(chalk.yellow('     ⚠ ') + chalk.bold('Review required.') + chalk.dim(` When done: aitasks review ${task.id} → spawn review sub-agent → aitasks done ${task.id}`));
+        }
         console.log(chalk.dim(`     Add notes as you go: aitasks note ${task.id} "<your note>"`));
       }
     }
 
     if (json) {
-      return jsonOut(allSuccess, { results });
+      return jsonOut(allSuccess, { results, review_required: reviewRequired });
     }
 
     console.log('');

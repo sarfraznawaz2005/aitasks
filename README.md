@@ -174,14 +174,17 @@ aitasks init --with-review
 aitasks init --with-review  # safe to re-run; updates DB setting and rewrites agent file
 ```
 
+**A task is only complete when its status is `done`.** No other status — verified criteria, `review`, `in_progress` — counts as complete. Agents must reach `done` to consider a task finished.
+
 **How it works:**
 
-1. Agent completes work and checks all acceptance criteria
+1. Agent completes work and verifies all acceptance criteria with evidence
 2. Agent submits for review — task moves to `review` status:
    ```sh
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
    ```
-3. A separate review sub-agent inspects the implementation and either:
+   The command output explicitly instructs the agent to immediately spawn a review sub-agent. The task is **not complete** at this point.
+3. The agent **immediately spawns a review sub-agent** to inspect the implementation:
    - **Approves** — moves task to done:
      ```sh
      aitasks done TASK-001 --agent review-agent
@@ -190,11 +193,11 @@ aitasks init --with-review  # safe to re-run; updates DB setting and rewrites ag
      ```sh
      aitasks reject TASK-001 --reason "Missing error handling for 404 case" --agent review-agent
      ```
-4. If rejected, the agent addresses feedback, re-verifies criteria, and repeats from step 2.
+4. If rejected, the original agent addresses the feedback, re-verifies criteria, and repeats from step 2.
 
-**Enforcement:** When review is required, `aitasks done` and `aitasks update --status done` both block if the task is not already in `review` status. The gate cannot be bypassed.
+**Enforcement:** `aitasks done` and `aitasks update --status done` both block if the task isn't already in `review` status. The gate cannot be bypassed.
 
-**Board:** Tasks in `review` status appear in the **IN PROGRESS** section with a `◈` magenta indicator so they're visually distinct from actively worked tasks.
+**Board:** Tasks in `review` status appear in the **IN PROGRESS** section with a `◈` magenta indicator so they're visually distinct from actively-worked tasks.
 
 ---
 
