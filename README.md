@@ -140,7 +140,8 @@ aitasks create \
   --ac "Returns 200" \          # Acceptance criterion (repeatable, at least one required)
   --priority high \             # critical | high | medium | low
   --type feature \              # feature | bug | chore | spike
-  --parent TASK-001             # Parent task ID (optional)
+  --parent TASK-001 \           # Parent task ID (optional)
+  --agent $AITASKS_AGENT_ID     # Agent creating the task (logged in event history)
 ```
 
 ---

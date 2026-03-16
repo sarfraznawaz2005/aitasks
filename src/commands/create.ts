@@ -6,7 +6,7 @@ import { createTask } from '../models/task.js';
 import { getTask } from '../models/task.js';
 import type { TaskPriority, TaskType } from '../types.js';
 import { renderTaskDetail } from '../display/detail.js';
-import { jsonOut, isJsonMode } from './shared.js';
+import { jsonOut, isJsonMode, agentId as resolveAgentId } from './shared.js';
 
 export const createCommand = new Command('create')
   .description('Create a new task')
@@ -16,6 +16,7 @@ export const createCommand = new Command('create')
   .option('-p, --priority <priority>', 'Priority: critical|high|medium|low', 'medium')
   .option('--type <type>', 'Type: feature|bug|chore|spike', 'feature')
   .option('--parent <taskId>', 'Parent task ID for subtasks')
+  .option('--agent <agentId>', 'Agent ID creating this task (or set AITASKS_AGENT_ID)')
   .option('--json', 'Output as JSON')
   .action(async (opts: {
     title?: string;
@@ -24,6 +25,7 @@ export const createCommand = new Command('create')
     priority: string;
     type: string;
     parent?: string;
+    agent?: string;
     json?: boolean;
   }) => {
     requireInitialized();
@@ -51,6 +53,7 @@ export const createCommand = new Command('create')
         }
       }
 
+      const aid = resolveAgentId(opts.agent) ?? undefined;
       const task = createTask({
         title: opts.title,
         description: opts.desc ?? '',
@@ -58,6 +61,7 @@ export const createCommand = new Command('create')
         priority: opts.priority as TaskPriority,
         type: opts.type as TaskType,
         parent_id: opts.parent,
+        created_by: aid,
       });
 
       if (json) return jsonOut(true, task);

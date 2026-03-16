@@ -132,6 +132,7 @@ export function createTask(data: {
   type?: TaskType;
   parent_id?: string;
   metadata?: Record<string, unknown>;
+  created_by?: string;
 }): Task {
   const db = getDb();
   const id = nextTaskId();
@@ -157,7 +158,7 @@ export function createTask(data: {
     ]
   );
 
-  logEvent({ task_id: id, event_type: 'created', payload: { title: data.title } });
+  logEvent({ task_id: id, agent_id: data.created_by, event_type: 'created', payload: { title: data.title } });
   return getTask(id)!;
 }
 
@@ -289,10 +290,10 @@ export function claimTask(
 
   // Upsert agent record
   db.run(
-    `INSERT INTO agents (id, last_seen, current_task)
-     VALUES (?, ?, ?)
+    `INSERT INTO agents (id, first_seen, last_seen, current_task)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, current_task = excluded.current_task`,
-    [agentId, Date.now(), taskId]
+    [agentId, Date.now(), Date.now(), taskId]
   );
 
   const updated = updateTask(taskId, { assigned_to: agentId, status: 'ready' });
@@ -315,10 +316,10 @@ export function startTask(
   // Claim it on the fly if unassigned
   if (!task.assigned_to) {
     db.run(
-      `INSERT INTO agents (id, last_seen, current_task)
-       VALUES (?, ?, ?)
+      `INSERT INTO agents (id, first_seen, last_seen, current_task)
+       VALUES (?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, current_task = excluded.current_task`,
-      [agentId, Date.now(), taskId]
+      [agentId, Date.now(), Date.now(), taskId]
     );
   }
 
@@ -387,17 +388,18 @@ export function completeTask(
       };
     }
 
-    // Require the approving agent to be a registered agent (must have previously
-    // interacted with the system via claim/start/heartbeat). This blocks fake agent
-    // ID strings that were never actually spawned as a real sub-agent.
-    const knownAgent = db.query(`SELECT id FROM agents WHERE id = ?`).get(agentId) as { id: string } | null;
-    if (!knownAgent) {
+    // Require the approving agent to have been registered BEFORE the review was submitted.
+    // This blocks the pattern: "heartbeat right before done" used to fake a reviewer.
+    const reviewerRow = db.query(`SELECT first_seen FROM agents WHERE id = ?`).get(agentId) as { first_seen: number } | null;
+    const reviewSubmittedAt = reviewEvent?.created_at ?? 0;
+    if (!reviewerRow || reviewerRow.first_seen > reviewSubmittedAt) {
       return {
         task: null,
         error:
-          `Unknown review agent: '${agentId}' has not registered with the system.\n` +
-          `  A real review sub-agent must register first by running any aitasks command\n` +
-          `  (e.g. aitasks heartbeat --agent ${agentId}) before it can approve a review.`,
+          `Review agent '${agentId}' was not active before this review was submitted.\n` +
+          `  A real review sub-agent must be independently spawned — it cannot be registered\n` +
+          `  moments before approving. The reviewer must have prior activity in the system\n` +
+          `  before the review was submitted.`,
       };
     }
   }
@@ -583,18 +585,18 @@ export function unclaimTask(
 export function heartbeat(agentId: string, taskId?: string): void {
   const db = getDb();
   db.run(
-    `INSERT INTO agents (id, last_seen, current_task)
-     VALUES (?, ?, ?)
+    `INSERT INTO agents (id, first_seen, last_seen, current_task)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`,
-    [agentId, Date.now(), taskId ?? null]
+    [agentId, Date.now(), Date.now(), taskId ?? null]
   );
 }
 
-export function listAgents(): { id: string; last_seen: number; current_task: string | null }[] {
+export function listAgents(): { id: string; first_seen: number; last_seen: number; current_task: string | null }[] {
   const db = getDb();
   return db
     .query('SELECT * FROM agents ORDER BY last_seen DESC')
-    .all() as { id: string; last_seen: number; current_task: string | null }[];
+    .all() as { id: string; first_seen: number; last_seen: number; current_task: string | null }[];
 }
 
 export function getNextTask(agentId?: string): Task | null {

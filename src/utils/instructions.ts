@@ -99,7 +99,7 @@ Always note:
 
 Creating subtasks:
 \`\`\`bash
-aitasks create --title "Write unit tests for auth" --desc "Add unit tests covering all auth edge cases" --ac "All tests pass" --ac "Coverage ≥ 90%" --parent TASK-001 --priority high --type chore
+aitasks create --title "Write unit tests for auth" --desc "Add unit tests covering all auth edge cases" --ac "All tests pass" --ac "Coverage ≥ 90%" --parent TASK-001 --priority high --type chore --agent $AITASKS_AGENT_ID
 \`\`\`
 
 If you discover your task is blocked by something:
@@ -199,7 +199,7 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 5. Add implementation notes continuously, not just at the end.
 6. If a task needs splitting, create subtasks BEFORE marking parent done.
 7. Your evidence strings must be concrete and verifiable — not vague affirmations.
-8. Always provide --desc and at least one --ac when creating a task. Both are required.${reviewRequired ? `
+8. Always provide --desc, at least one --ac, and --agent when creating a task. All three are required.${reviewRequired ? `
 9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID. Do NOT call \`aitasks done\` yourself after submitting for review — the system blocks self-approval.` : ''}
 
 ---
@@ -212,7 +212,7 @@ aitasks list [--status <s>] [--json]        List tasks
 aitasks show <id>                           Full task detail (includes time tracking)
 aitasks search <query>                      Search titles, descriptions, notes
 aitasks deps <id>                           Show dependency tree
-aitasks create --title <t> --desc <d> --ac <c> [--ac <c> ...]   Create a task
+aitasks create --title <t> --desc <d> --ac <c> [--ac <c> ...] --agent <id>   Create a task
 aitasks claim <id...> --agent <id>          Claim task(s) - supports patterns like TASK-0*
 aitasks start <id...> --agent <id>          Begin work on task(s)
 aitasks note <id> <text> --agent <id>       Add implementation note

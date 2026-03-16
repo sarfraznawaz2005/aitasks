@@ -61,7 +61,7 @@ describe('database initialization', () => {
       .all() as { key: string; value: string }[];
     const meta = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     expect(meta['last_task_number']).toBe('0');
-    expect(meta['schema_version']).toBe('2');
+    expect(meta['schema_version']).toBe('3');
     expect(meta['initialized_at']).toBeDefined();
   });
 

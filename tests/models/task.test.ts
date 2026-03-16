@@ -701,6 +701,7 @@ describe('completeTask — review enforcement', () => {
     const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
     startTask(task.id, 'agent-1');
     checkCriterion(task.id, 0, 'proof', 'agent-1');
+    heartbeat('review-agent'); // reviewer registers before review is submitted
     reviewTask(task.id, 'agent-1');
     const { task: done, error } = completeTask(task.id, 'review-agent');
     expect(error).toBeUndefined();
@@ -768,9 +769,8 @@ describe('completeTask — review enforcement', () => {
     const task = makeTask({ title: 'T', acceptance_criteria: ['AC1'] });
     startTask(task.id, 'agent-1');
     checkCriterion(task.id, 0, 'proof', 'agent-1');
+    heartbeat('reviewer-agent'); // reviewer registers before review is submitted
     reviewTask(task.id, 'agent-1');
-    // Register the reviewer via heartbeat (simulates a real sub-agent spawning)
-    heartbeat('reviewer-agent');
     const { task: done, error } = completeTask(task.id, 'reviewer-agent');
     expect(error).toBeUndefined();
     expect(done!.status).toBe('done');
@@ -785,7 +785,7 @@ describe('completeTask — review enforcement', () => {
     // Fake ID never registered — should be blocked
     const { task: result, error } = completeTask(task.id, 'fake-review-agent');
     expect(result).toBeNull();
-    expect(error).toContain('Unknown review agent');
+    expect(error).toContain('was not active before');
   });
 });
 
@@ -809,11 +809,13 @@ describe('review cycle', () => {
     // Re-verify criterion with better evidence
     checkCriterion(task.id, 0, 'better proof with test output', 'agent-1');
 
+    // Reviewer registers before second review is submitted
+    heartbeat('reviewer');
+
     // Second review submission
     reviewTask(task.id, 'agent-1');
     expect(getTask(task.id)!.status).toBe('review');
 
-    // Approved
     const { task: done, error } = completeTask(task.id, 'reviewer');
     expect(error).toBeUndefined();
     expect(done!.status).toBe('done');

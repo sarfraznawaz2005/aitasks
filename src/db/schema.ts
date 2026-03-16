@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export function runMigrations(db: Database): void {
   const row = db.query(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | null;
@@ -10,6 +10,13 @@ export function runMigrations(db: Database): void {
     db.exec(`UPDATE tasks SET status = 'review' WHERE status = 'needs_review'`);
     db.exec(`INSERT OR IGNORE INTO meta (key, value) VALUES ('review_required', 'false')`);
     db.exec(`UPDATE meta SET value = '2' WHERE key = 'schema_version'`);
+  }
+
+  if (current < 3) {
+    // Add first_seen column to agents table; seed with last_seen for existing rows
+    db.exec(`ALTER TABLE agents ADD COLUMN first_seen INTEGER`);
+    db.exec(`UPDATE agents SET first_seen = last_seen WHERE first_seen IS NULL`);
+    db.exec(`UPDATE meta SET value = '3' WHERE key = 'schema_version'`);
   }
 }
 
@@ -43,6 +50,7 @@ export function initializeSchema(db: Database): void {
 
     CREATE TABLE IF NOT EXISTS agents (
       id           TEXT PRIMARY KEY,
+      first_seen   INTEGER NOT NULL,
       last_seen    INTEGER NOT NULL,
       current_task TEXT REFERENCES tasks(id) ON DELETE SET NULL
     );
