@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import type { Task, TaskStatus, TaskPriority } from '../types.js';
 import { STATUS_ICON } from './colors.js';
 import { formatDate, formatTime, terminalWidth } from '../utils/format.js';
-import { updateTask } from '../models/task.js';
+import { updateTask, completeTask } from '../models/task.js';
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -355,6 +355,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   const [scrollOffset,     setScrollOffset]     = useState(0);
   const [leftScrollOffset, setLeftScrollOffset] = useState(0);
   const [mode,             setMode]             = useState<Mode>('normal');
+  const [moveError,        setMoveError]        = useState<string | null>(null);
   const [searchQuery,      setSearchQuery]      = useState('');
   const { exit }   = useApp();
   const { stdout } = useStdout();
@@ -464,9 +465,22 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       };
       const newStatus = statusMap[input];
       if (newStatus && selectedTask) {
-        updateTask(selectedTask.id, { status: newStatus });
-        setTasks(getTasks());
-        setMode('normal');
+        if (newStatus === 'done') {
+          const { error } = completeTask(selectedTask.id);
+          if (error) {
+            setMoveError(error.split('\n')[0] ?? error);
+            setMode('normal');
+          } else {
+            setMoveError(null);
+            setTasks(getTasks());
+            setMode('normal');
+          }
+        } else {
+          setMoveError(null);
+          updateTask(selectedTask.id, { status: newStatus });
+          setTasks(getTasks());
+          setMode('normal');
+        }
       }
       return;
     }
@@ -474,8 +488,8 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     // ── Normal mode ──────────────────────────────────────────────────
     if (input === 'q') exit();
     if (key.escape) { searchQuery ? setSearchQuery('') : exit(); return; }
-    if (key.upArrow)   setSelectedIdx(i => Math.max(0, i - 1));
-    if (key.downArrow) setSelectedIdx(i => Math.min(items.length - 1, i + 1));
+    if (key.upArrow)   { setMoveError(null); setSelectedIdx(i => Math.max(0, i - 1)); }
+    if (key.downArrow) { setMoveError(null); setSelectedIdx(i => Math.min(items.length - 1, i + 1)); }
     if (input === 's') setMode('search');
     if (input === 'm' && selectedTask) setMode('move');
   });
@@ -733,7 +747,14 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
         >
           {mode === 'move' && selectedTask
             ? <StatusPicker task={selectedTask} />
-            : <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} metricsRef={rightMetricsRef} />
+            : <>
+                {moveError && (
+                  <Box paddingX={1} paddingTop={1}>
+                    <Text color="red">✗ {moveError}</Text>
+                  </Box>
+                )}
+                <RightPane task={selectedTask} width={rightInner} height={rightHeight} scrollOffset={scrollOffset} metricsRef={rightMetricsRef} />
+              </>
           }
         </Box>
 

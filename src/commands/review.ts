@@ -83,7 +83,7 @@ export const reviewCommand = new Command('review')
           console.log(chalk.dim(`  3. Sub-agent examines implementation and verifies all acceptance criteria`));
           console.log(chalk.dim(`  4. Approve:  aitasks done ${task.id} --agent review-${task.id.toLowerCase()}`));
           console.log(chalk.dim(`     Reject:   aitasks reject ${task.id} --reason "<feedback>" --agent review-${task.id.toLowerCase()}`));
-          console.log(chalk.dim(`  The system will reject approval from unregistered or self-approving agents.`));
+          console.log(chalk.dim(`  The system will reject approval from the implementing agent or the agent that submitted the review.`));
         } else {
           console.log(chalk.dim(`     Approve: aitasks done ${task.id} --agent <review-agent-id>`));
           console.log(chalk.dim(`     Reject:  aitasks reject ${task.id} --reason "<feedback>"`));
