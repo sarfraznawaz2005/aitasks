@@ -335,7 +335,7 @@ export function startTask(
 
 export function completeTask(
   taskId: string,
-  agentId: string
+  agentId?: string
 ): { task: Task | null; error?: string; unchecked?: string[] } {
   const db = getDb();
   const task = getTask(taskId);
@@ -390,17 +390,20 @@ export function completeTask(
 
     // Require the approving agent to have been registered BEFORE the review was submitted.
     // This blocks the pattern: "heartbeat right before done" used to fake a reviewer.
-    const reviewerRow = db.query(`SELECT first_seen FROM agents WHERE id = ?`).get(agentId) as { first_seen: number } | null;
-    const reviewSubmittedAt = reviewEvent?.created_at ?? 0;
-    if (!reviewerRow || reviewerRow.first_seen > reviewSubmittedAt) {
-      return {
-        task: null,
-        error:
-          `Review agent '${agentId}' was not active before this review was submitted.\n` +
-          `  A real review sub-agent must be independently spawned — it cannot be registered\n` +
-          `  moments before approving. The reviewer must have prior activity in the system\n` +
-          `  before the review was submitted.`,
-      };
+    // Skipped when no --agent is given (human/operator approving directly — trusted action).
+    if (agentId) {
+      const reviewerRow = db.query(`SELECT first_seen FROM agents WHERE id = ?`).get(agentId) as { first_seen: number } | null;
+      const reviewSubmittedAt = reviewEvent?.created_at ?? 0;
+      if (!reviewerRow || reviewerRow.first_seen > reviewSubmittedAt) {
+        return {
+          task: null,
+          error:
+            `Review agent '${agentId}' was not active before this review was submitted.\n` +
+            `  A real review sub-agent must be independently spawned — it cannot be registered\n` +
+            `  moments before approving. The reviewer must have prior activity in the system\n` +
+            `  before the review was submitted.`,
+        };
+      }
     }
   }
 
@@ -432,7 +435,7 @@ export function completeTask(
   }
 
   // Release agent
-  db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
+  if (agentId) db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
 
   return { task: updated };
 }

@@ -136,12 +136,13 @@ ${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
    \`\`\`bash
    aitasks review TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
-   **STOP HERE. Do not run \`aitasks done\` yourself.** The system will block self-approval.
+   **Do not run \`aitasks done\` yourself.** The system will block self-approval.
 
-4. **IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID** to inspect the implementation.
-   The review sub-agent must first register itself, then approve or reject:
+4. **IN THIS SAME SESSION, immediately spawn a review sub-agent** with a DIFFERENT agent ID.
+   Do this NOW — before writing any summary, before moving to any other task, before anything else.
+   The review sub-agent must register first, then inspect and approve or reject:
    \`\`\`bash
-   # Review sub-agent registers itself
+   # Review sub-agent registers itself (BEFORE the review was submitted — or it will be blocked)
    aitasks heartbeat --agent <review-agent-id>
 
    # Approve (moves task to done):
@@ -150,12 +151,15 @@ ${reviewRequired ? `3. Submit for review — you CANNOT mark done directly:
    # OR reject (sends task back to in_progress with feedback):
    aitasks reject TASK-001 --reason "<specific feedback>" --agent <review-agent-id>
    \`\`\`
-   The task is still incomplete until the review agent approves it.
-   **The system will block approval from any agent that has not registered or that submitted the review itself.**
+   **Your session is NOT complete after submitting for review. You must remain active and drive the
+   review to completion. The task is still incomplete until \`aitasks done\` succeeds.**
+   The system will block approval from any agent that registered after the review was submitted
+   or that submitted the review itself.
 
 5. If rejected: address the feedback, re-check criteria, and repeat from step 3.
 
-> The task is only done when \`aitasks done\` completes successfully. \`review\` status means awaiting approval — it is not done.` : `3. Mark done (will FAIL if any criterion is unchecked):
+> The task is only done when \`aitasks done\` completes successfully. \`review\` status means
+> awaiting approval — it is NOT done. Do not write a final summary until all tasks are \`done\`.` : `3. Mark done (will FAIL if any criterion is unchecked):
    \`\`\`bash
    aitasks done TASK-001 --agent $AITASKS_AGENT_ID
    \`\`\`
@@ -200,9 +204,28 @@ aitasks unclaim TASK-001 --agent $AITASKS_AGENT_ID --reason "Blocked on missing 
 6. If a task needs splitting, create subtasks BEFORE marking parent done.
 7. Your evidence strings must be concrete and verifiable — not vague affirmations.
 8. Always provide --desc, at least one --ac, and --agent when creating a task. All three are required.${reviewRequired ? `
-9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID. Do NOT call \`aitasks done\` yourself after submitting for review — the system blocks self-approval.` : ''}
+9. NEVER move a task to done directly. Always submit for review first with \`aitasks review\`, then IMMEDIATELY spawn a review sub-agent with a DIFFERENT agent ID in the SAME session. Do NOT call \`aitasks done\` yourself after submitting for review — the system blocks self-approval.
+10. **Do not end your session or write a final summary until every task you worked on is in \`done\` status.** If any task is in \`review\`, you must spawn the review sub-agent NOW in this session. Submitting for review and stopping is an incomplete session.` : ''}
 
----
+${reviewRequired ? `---
+
+### Before Ending Your Session
+
+**Run this check before writing any final summary or concluding your work:**
+
+\`\`\`bash
+aitasks list --json   # Check that ALL your tasks are in done status
+\`\`\`
+
+- Any task in \`done\` → ✓ complete
+- Any task in \`review\` → you MUST spawn a review sub-agent NOW in this session before stopping
+- Any task in \`in_progress\` → continue implementation
+
+**You are NOT finished until \`aitasks list\` shows every task you worked on as \`done\`.**
+Submitting tasks for review and then stopping is an incomplete session. The review sub-agent
+must be spawned and must approve the task in this same session.
+
+` : ''}---
 
 ### Quick Reference
 
