@@ -27,6 +27,9 @@ export const boardCommand = new Command('board')
       return;
     }
 
+    // Set terminal title
+    process.stdout.write('\x1b]0;AITasks Board\x07');
+
     // Live two-pane tree board — polls DB every 1.5s, press q to exit
     await startTreeBoard(() => listTasks());
   });

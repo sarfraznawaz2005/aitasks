@@ -766,6 +766,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 export async function startTreeBoard(getTasks: () => Task[]): Promise<void> {
   const { waitUntilExit } = render(<TreeBoardComponent getTasks={getTasks} />);
   await waitUntilExit();
+  process.stdout.write('\x1b[2J\x1b[H');
 }
 
 // ─── Static board (board --all) ───────────────────────────────────────────────
