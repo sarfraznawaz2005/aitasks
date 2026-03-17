@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export function runMigrations(db: Database): void {
   const row = db.query(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as { value: string } | null;
@@ -17,6 +17,15 @@ export function runMigrations(db: Database): void {
     db.exec(`ALTER TABLE agents ADD COLUMN first_seen INTEGER`);
     db.exec(`UPDATE agents SET first_seen = last_seen WHERE first_seen IS NULL`);
     db.exec(`UPDATE meta SET value = '3' WHERE key = 'schema_version'`);
+  }
+
+  if (current < 4) {
+    // Add composite index for event lookups per task, index on agents.current_task,
+    // and index on tasks.type
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_events_task_created ON events(task_id, created_at)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_agents_current_task ON agents(current_task)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)`);
+    db.exec(`UPDATE meta SET value = '4' WHERE key = 'schema_version'`);
   }
 }
 
@@ -68,8 +77,11 @@ export function initializeSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_priority    ON tasks(priority);
     CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(assigned_to);
     CREATE INDEX IF NOT EXISTS idx_tasks_parent_id   ON tasks(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_events_task_id    ON events(task_id);
-    CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_events_task_id      ON events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_events_created_at  ON events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_events_task_created ON events(task_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agents_current_task ON agents(current_task);
+    CREATE INDEX IF NOT EXISTS idx_tasks_type          ON tasks(type);
   `);
 
   const insert = db.prepare(

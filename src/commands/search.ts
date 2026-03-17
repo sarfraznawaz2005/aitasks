@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { requireInitialized } from '../db/index.js';
-import { listTasks } from '../models/task.js';
+import { searchTasks } from '../models/task.js';
 import { jsonOut, isJsonMode } from './shared.js';
 import type { Task } from '../types.js';
 
@@ -25,7 +25,8 @@ export const searchCommand = new Command('search')
     const query = queryParts.join(' ').toLowerCase();
     const searchTerms = query.split(/\s+/).filter(Boolean);
 
-    const allTasks = listTasks(opts.status ? { status: opts.status as any } : {});
+    // Pre-filter at SQL level, then final JS filter for AND logic across all fields
+    const allTasks = searchTasks(searchTerms, opts.status as any);
     const results = allTasks.filter(task => matchesSearch(task, searchTerms));
 
     if (results.length === 0) {

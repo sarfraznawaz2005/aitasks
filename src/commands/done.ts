@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { requireInitialized } from '../db/index.js';
-import { completeTask, listTasks } from '../models/task.js';
+import { completeTask, getAllTaskIds } from '../models/task.js';
 import { jsonOut, isJsonMode, exitError } from './shared.js';
 import { resolveTaskIds, isPattern } from '../utils/pattern.js';
 
@@ -15,8 +15,8 @@ export const doneCommand = new Command('done')
     const json = isJsonMode(opts.json);
     const agent = opts.agent ?? process.env.AITASKS_AGENT_ID;
 
-    // Get all existing task IDs for pattern expansion
-    const allTaskIds = listTasks().map(t => t.id);
+    // Get all existing task IDs for pattern expansion (lightweight, no JSON parsing)
+    const allTaskIds = getAllTaskIds();
 
     // Resolve patterns to actual task IDs
     const resolvedIds = resolveTaskIds(taskIds.map(id => id.toUpperCase()), allTaskIds);

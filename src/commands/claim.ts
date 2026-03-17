@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { requireInitialized } from '../db/index.js';
-import { claimTask, listTasks } from '../models/task.js';
+import { claimTask, getAllTaskIds } from '../models/task.js';
 import { jsonOut, requireAgentId, isJsonMode, exitError } from './shared.js';
 import { resolveTaskIds, isPattern } from '../utils/pattern.js';
 
@@ -16,7 +16,7 @@ export const claimCommand = new Command('claim')
     const agent = requireAgentId(opts.agent, 'claim');
 
     // Get all existing task IDs for pattern expansion
-    const allTaskIds = listTasks().map(t => t.id);
+    const allTaskIds = getAllTaskIds();
 
     // Resolve patterns to actual task IDs
     const resolvedIds = resolveTaskIds(taskIds.map(id => id.toUpperCase()), allTaskIds);

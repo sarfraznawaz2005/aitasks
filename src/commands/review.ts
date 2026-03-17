@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { requireInitialized, getReviewRequired } from '../db/index.js';
-import { reviewTask, listTasks } from '../models/task.js';
+import { reviewTask, getAllTaskIds } from '../models/task.js';
 import { requireAgentId, jsonOut, isJsonMode, exitError } from './shared.js';
 import { resolveTaskIds, isPattern } from '../utils/pattern.js';
 
@@ -16,7 +16,7 @@ export const reviewCommand = new Command('review')
     const agent = requireAgentId(opts.agent, 'review');
 
     // Get all existing task IDs for pattern expansion
-    const allTaskIds = listTasks().map(t => t.id);
+    const allTaskIds = getAllTaskIds();
 
     // Resolve patterns to actual task IDs
     const resolvedIds = resolveTaskIds(taskIds.map(id => id.toUpperCase()), allTaskIds);

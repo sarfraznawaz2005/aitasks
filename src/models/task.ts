@@ -1,5 +1,6 @@
 import { getDb, getReviewRequired } from '../db/index.js';
-import { logEvent, getTaskEvents } from './event.js';
+import { logEvent, getLastReviewEvent } from './event.js';
+import type { Database } from 'bun:sqlite';
 import type { SQLQueryBindings } from 'bun:sqlite';
 import type {
   Task,
@@ -10,6 +11,52 @@ import type {
   ImplementationNote,
   TestResult,
 } from '../types.js';
+
+// ─── Prepared statement cache ────────────────────────────────────────────────
+
+let _stmtDb: Database | null = null;
+let _getTaskStmt: ReturnType<Database['query']> | null = null;
+let _getAllIdsStmt: ReturnType<Database['query']> | null = null;
+let _getMetaStmt: ReturnType<Database['query']> | null = null;
+let _updateMetaStmt: ReturnType<Database['query']> | null = null;
+let _upsertAgentStmt: ReturnType<Database['query']> | null = null;
+let _heartbeatStmt: ReturnType<Database['query']> | null = null;
+let _releaseAgentStmt: ReturnType<Database['query']> | null = null;
+let _subtaskCountStmt: ReturnType<Database['query']> | null = null;
+
+function stmts() {
+  const db = getDb();
+  if (_stmtDb !== db) {
+    _stmtDb = db;
+    _getTaskStmt = db.query('SELECT * FROM tasks WHERE id = ?');
+    _getAllIdsStmt = db.query('SELECT id FROM tasks');
+    _getMetaStmt = db.query(`SELECT value FROM meta WHERE key = 'last_task_number'`);
+    _updateMetaStmt = db.query(`UPDATE meta SET value = ? WHERE key = 'last_task_number'`);
+    _upsertAgentStmt = db.query(
+      `INSERT INTO agents (id, first_seen, last_seen, current_task)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, current_task = excluded.current_task`
+    );
+    _heartbeatStmt = db.query(
+      `INSERT INTO agents (id, first_seen, last_seen, current_task)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`
+    );
+    _releaseAgentStmt = db.query(`UPDATE agents SET current_task = NULL WHERE id = ?`);
+    _subtaskCountStmt = db.query(`SELECT COUNT(*) as count FROM tasks WHERE parent_id = ?`);
+  }
+  return {
+    db,
+    getTask: _getTaskStmt!,
+    getAllIds: _getAllIdsStmt!,
+    getMeta: _getMetaStmt!,
+    updateMeta: _updateMetaStmt!,
+    upsertAgent: _upsertAgentStmt!,
+    heartbeat: _heartbeatStmt!,
+    releaseAgent: _releaseAgentStmt!,
+    subtaskCount: _subtaskCountStmt!,
+  };
+}
 
 // ─── Parsing ─────────────────────────────────────────────────────────────────
 
@@ -39,21 +86,24 @@ function parseTask(row: TaskRow): Task {
 // ─── ID Generation ────────────────────────────────────────────────────────────
 
 function nextTaskId(): string {
-  const db = getDb();
-  const meta = db
-    .query(`SELECT value FROM meta WHERE key = 'last_task_number'`)
-    .get() as { value: string };
+  const s = stmts();
+  const meta = s.getMeta.get() as { value: string };
   const next = parseInt(meta.value, 10) + 1;
-  db.run(`UPDATE meta SET value = ? WHERE key = 'last_task_number'`, [String(next)]);
+  s.updateMeta.run(String(next));
   return `TASK-${String(next).padStart(3, '0')}`;
 }
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 export function getTask(id: string): Task | null {
-  const db = getDb();
-  const row = db.query('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | null;
+  const row = stmts().getTask.get(id) as TaskRow | null;
   return row ? parseTask(row) : null;
+}
+
+/** Return just the IDs of all tasks (lightweight — no JSON parsing). */
+export function getAllTaskIds(): string[] {
+  const rows = stmts().getAllIds.all() as { id: string }[];
+  return rows.map(r => r.id);
 }
 
 const PRIORITY_ORDER = `CASE priority
@@ -77,7 +127,7 @@ export function listTasks(filters: {
   assigned_to?: string;
   parent_id?: string | null;
 } = {}): Task[] {
-  const db = getDb();
+  const db = stmts().db;
   const conds: string[] = [];
   const params: unknown[] = [];
 
@@ -122,6 +172,30 @@ export function getSubtasks(parentId: string): Task[] {
   return listTasks({ parent_id: parentId });
 }
 
+/** SQL-level pre-filter for search — uses LIKE on text columns. */
+export function searchTasks(terms: string[], status?: TaskStatus): Task[] {
+  const db = stmts().db;
+  const conds: string[] = [];
+  const params: string[] = [];
+
+  if (status) {
+    conds.push('status = ?');
+    params.push(status);
+  }
+
+  for (const term of terms) {
+    conds.push(
+      `(title LIKE ? OR description LIKE ? OR implementation_notes LIKE ? OR acceptance_criteria LIKE ?)`
+    );
+    const like = `%${term}%`;
+    params.push(like, like, like, like);
+  }
+
+  const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+  const rows = db.query(`SELECT * FROM tasks ${where}`).all(...params) as TaskRow[];
+  return rows.map(parseTask);
+}
+
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
 export function createTask(data: {
@@ -134,7 +208,7 @@ export function createTask(data: {
   metadata?: Record<string, unknown>;
   created_by?: string;
 }): Task {
-  const db = getDb();
+  const db = stmts().db;
   const id = nextTaskId();
   const now = Date.now();
 
@@ -190,7 +264,7 @@ const JSON_FIELDS = new Set([
 ]);
 
 export function updateTask(id: string, updates: UpdatableFields): Task | null {
-  const db = getDb();
+  const db = stmts().db;
   const fields: string[] = ['updated_at = ?'];
   const params: unknown[] = [Date.now()];
 
@@ -201,8 +275,10 @@ export function updateTask(id: string, updates: UpdatableFields): Task | null {
   }
 
   params.push(id);
-  db.run(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`, params as SQLQueryBindings[]);
-  return getTask(id);
+  const row = db.query(
+    `UPDATE tasks SET ${fields.join(', ')} WHERE id = ? RETURNING *`
+  ).get(...(params as SQLQueryBindings[])) as TaskRow | null;
+  return row ? parseTask(row) : null;
 }
 
 // ─── Domain operations ────────────────────────────────────────────────────────
@@ -274,7 +350,7 @@ export function claimTask(
   taskId: string,
   agentId: string
 ): { task: Task | null; error?: string } {
-  const db = getDb();
+  const s = stmts();
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
   if (task.status === 'done') return { task: null, error: 'Task is already done' };
@@ -288,13 +364,8 @@ export function claimTask(
     };
   }
 
-  // Upsert agent record
-  db.run(
-    `INSERT INTO agents (id, first_seen, last_seen, current_task)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, current_task = excluded.current_task`,
-    [agentId, Date.now(), Date.now(), taskId]
-  );
+  const now = Date.now();
+  s.upsertAgent.run(agentId, now, now, taskId);
 
   const updated = updateTask(taskId, { assigned_to: agentId, status: 'ready' });
   logEvent({ task_id: taskId, agent_id: agentId, event_type: 'claimed', payload: {} });
@@ -305,6 +376,7 @@ export function startTask(
   taskId: string,
   agentId: string
 ): { task: Task | null; error?: string } {
+  const s = stmts();
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
   if (task.status === 'in_progress') return { task: null, error: 'Task is already in progress' };
@@ -312,15 +384,10 @@ export function startTask(
     return { task: null, error: `Task is assigned to ${task.assigned_to}, not ${agentId}` };
   }
 
-  const db = getDb();
   // Claim it on the fly if unassigned
   if (!task.assigned_to) {
-    db.run(
-      `INSERT INTO agents (id, first_seen, last_seen, current_task)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen, current_task = excluded.current_task`,
-      [agentId, Date.now(), Date.now(), taskId]
-    );
+    const now = Date.now();
+    s.upsertAgent.run(agentId, now, now, taskId);
   }
 
   const updated = updateTask(taskId, {
@@ -337,7 +404,7 @@ export function completeTask(
   taskId: string,
   agentId?: string
 ): { task: Task | null; error?: string; unchecked?: string[] } {
-  const db = getDb();
+  const s = stmts();
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
 
@@ -377,8 +444,8 @@ export function completeTask(
     }
 
     // Prevent the agent who submitted the review from also approving it
-    const events = getTaskEvents(taskId);
-    const reviewEvent = [...events].reverse().find(e => e.event_type === 'review_requested');
+    // Targeted query: only fetch the last review_requested event, not all events
+    const reviewEvent = getLastReviewEvent(taskId);
     if (reviewEvent?.agent_id && reviewEvent.agent_id === agentId) {
       return {
         task: null,
@@ -387,39 +454,48 @@ export function completeTask(
           `  A separate review sub-agent must run: aitasks done ${taskId} --agent <review-agent-id>`,
       };
     }
-
   }
 
-  const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });
-  logEvent({ task_id: taskId, agent_id: agentId, event_type: 'completed', payload: {} });
+  // Wrap the multi-write completion logic in a transaction
+  const db = s.db;
+  const doComplete = db.transaction(() => {
+    const updated = updateTask(taskId, { status: 'done', completed_at: Date.now() });
+    logEvent({ task_id: taskId, agent_id: agentId, event_type: 'completed', payload: {} });
 
-  // Auto-unblock dependent tasks
-  const pendingRows = db
-    .query(`SELECT id, blocked_by FROM tasks WHERE status != 'done'`)
-    .all() as { id: string; blocked_by: string }[];
+    // Auto-unblock dependent tasks — use SQL LIKE to avoid fetching all tasks
+    const pendingRows = db
+      .query(
+        `SELECT id, blocked_by FROM tasks
+         WHERE status != 'done' AND blocked_by LIKE '%' || ? || '%'`
+      )
+      .all(taskId) as { id: string; blocked_by: string }[];
 
-  for (const row of pendingRows) {
-    const blockedBy = JSON.parse(row.blocked_by) as string[];
-    if (!blockedBy.includes(taskId)) continue;
+    for (const row of pendingRows) {
+      const blockedBy = JSON.parse(row.blocked_by) as string[];
+      if (!blockedBy.includes(taskId)) continue;
 
-    const remaining = blockedBy.filter((id) => id !== taskId);
-    const newStatus: TaskStatus = remaining.length === 0 ? 'ready' : 'blocked';
-    db.run(
-      `UPDATE tasks SET blocked_by = ?, status = ?, updated_at = ? WHERE id = ?`,
-      [JSON.stringify(remaining), newStatus, Date.now(), row.id]
-    );
-    if (newStatus === 'ready') {
-      logEvent({
-        task_id: row.id,
-        event_type: 'auto_unblocked',
-        payload: { unblocked_by: taskId },
-      });
+      const remaining = blockedBy.filter((id) => id !== taskId);
+      const newStatus: TaskStatus = remaining.length === 0 ? 'ready' : 'blocked';
+      db.run(
+        `UPDATE tasks SET blocked_by = ?, status = ?, updated_at = ? WHERE id = ?`,
+        [JSON.stringify(remaining), newStatus, Date.now(), row.id]
+      );
+      if (newStatus === 'ready') {
+        logEvent({
+          task_id: row.id,
+          event_type: 'auto_unblocked',
+          payload: { unblocked_by: taskId },
+        });
+      }
     }
-  }
 
-  // Release agent
-  if (agentId) db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
+    // Release agent
+    if (agentId) s.releaseAgent.run(agentId);
 
+    return updated;
+  });
+
+  const updated = doComplete();
   return { task: updated };
 }
 
@@ -428,50 +504,74 @@ export function blockTask(
   blockerIds: string[],
   agentId?: string
 ): { task: Task | null; error?: string } {
+  const s = stmts();
+  const db = s.db;
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
 
+  // Batch-fetch all blocker tasks in one query to avoid N+1
+  const placeholders = blockerIds.map(() => '?').join(',');
+  const blockerRows = db
+    .query(`SELECT * FROM tasks WHERE id IN (${placeholders})`)
+    .all(...(blockerIds as SQLQueryBindings[])) as TaskRow[];
+  const blockerMap = new Map(blockerRows.map(r => [r.id, parseTask(r)]));
+
+  // Pre-fetch all tasks into a map for cycle detection
+  const allRows = db.query('SELECT * FROM tasks').all() as TaskRow[];
+  const allTaskMap = new Map(allRows.map(r => [r.id, parseTask(r)]));
+
   for (const bid of blockerIds) {
-    const blocker = getTask(bid);
+    const blocker = blockerMap.get(bid);
     if (!blocker) return { task: null, error: `Blocker not found: ${bid}` };
     if (blocker.status === 'done') {
       return { task: null, error: `Cannot block on completed task: ${bid}` };
     }
-    if (detectCycle(taskId, bid)) {
+    if (detectCycleFromMap(taskId, bid, allTaskMap)) {
       return { task: null, error: `Circular dependency detected: ${taskId} → ${bid}` };
     }
   }
 
   const newBlockedBy = [...new Set([...task.blocked_by, ...blockerIds])];
 
-  // Mirror the relationship on each blocker
-  for (const bid of blockerIds) {
-    const blocker = getTask(bid)!;
-    updateTask(bid, { blocks: [...new Set([...blocker.blocks, taskId])] });
-  }
+  // Wrap mirror updates + main update in a transaction
+  const doBlock = db.transaction(() => {
+    // Mirror the relationship on each blocker using direct SQL
+    for (const bid of blockerIds) {
+      const blocker = blockerMap.get(bid)!;
+      const newBlocks = JSON.stringify([...new Set([...blocker.blocks, taskId])]);
+      db.run(
+        `UPDATE tasks SET blocks = ?, updated_at = ? WHERE id = ?`,
+        [newBlocks, Date.now(), bid]
+      );
+    }
 
-  const updated = updateTask(taskId, { blocked_by: newBlockedBy, status: 'blocked' });
-  logEvent({
-    task_id: taskId,
-    agent_id: agentId,
-    event_type: 'blocked',
-    payload: { blocked_by: blockerIds },
+    const updated = updateTask(taskId, { blocked_by: newBlockedBy, status: 'blocked' });
+    logEvent({
+      task_id: taskId,
+      agent_id: agentId,
+      event_type: 'blocked',
+      payload: { blocked_by: blockerIds },
+    });
+
+    return updated;
   });
 
-  return { task: updated };
+  return { task: doBlock() };
 }
 
-function detectCycle(
+/** Cycle detection using a pre-fetched task map — no per-node queries. */
+function detectCycleFromMap(
   taskId: string,
   candidateBlocker: string,
+  taskMap: Map<string, Task>,
   visited = new Set<string>()
 ): boolean {
   if (candidateBlocker === taskId) return true;
   if (visited.has(candidateBlocker)) return false;
   visited.add(candidateBlocker);
-  const blocker = getTask(candidateBlocker);
+  const blocker = taskMap.get(candidateBlocker);
   if (!blocker) return false;
-  return blocker.blocked_by.some((id) => detectCycle(taskId, id, visited));
+  return blocker.blocked_by.some((id) => detectCycleFromMap(taskId, id, taskMap, visited));
 }
 
 export function unblockTask(
@@ -479,6 +579,7 @@ export function unblockTask(
   fromId: string,
   agentId?: string
 ): { task: Task | null; error?: string } {
+  const db = stmts().db;
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
   if (!task.blocked_by.includes(fromId)) {
@@ -487,10 +588,14 @@ export function unblockTask(
 
   const remaining = task.blocked_by.filter((id) => id !== fromId);
 
-  // Mirror on the former blocker
-  const blocker = getTask(fromId);
-  if (blocker) {
-    updateTask(fromId, { blocks: blocker.blocks.filter((id) => id !== taskId) });
+  // Mirror on the former blocker — direct SQL to avoid extra read
+  const blockerRow = db.query('SELECT blocks FROM tasks WHERE id = ?').get(fromId) as { blocks: string } | null;
+  if (blockerRow) {
+    const blocks = (JSON.parse(blockerRow.blocks) as string[]).filter((id) => id !== taskId);
+    db.run(
+      `UPDATE tasks SET blocks = ?, updated_at = ? WHERE id = ?`,
+      [JSON.stringify(blocks), Date.now(), fromId]
+    );
   }
 
   const newStatus: TaskStatus = remaining.length === 0 ? 'ready' : 'blocked';
@@ -526,8 +631,19 @@ export function rejectTask(
     return { task: null, error: 'Task must be in review status to reject' };
   }
 
-  updateTask(taskId, { status: 'in_progress' });
-  addImplementationNote(taskId, `REVIEW REJECTED: ${reason}`, agentId ?? 'human');
+  // Combine status change + note addition into a single updateTask call
+  const agent = agentId ?? 'human';
+  const entry: ImplementationNote = {
+    timestamp: Date.now(),
+    agent,
+    note: `REVIEW REJECTED: ${reason}`,
+  };
+  const updated = updateTask(taskId, {
+    status: 'in_progress',
+    implementation_notes: [...task.implementation_notes, entry],
+  });
+
+  logEvent({ task_id: taskId, agent_id: agentId, event_type: 'note_added', payload: { note: entry.note } });
   logEvent({
     task_id: taskId,
     agent_id: agentId,
@@ -535,7 +651,7 @@ export function rejectTask(
     payload: { reason },
   });
 
-  return { task: getTask(taskId) };
+  return { task: updated };
 }
 
 export function unclaimTask(
@@ -543,7 +659,7 @@ export function unclaimTask(
   agentId: string,
   reason?: string
 ): { task: Task | null; error?: string } {
-  const db = getDb();
+  const s = stmts();
   const task = getTask(taskId);
   if (!task) return { task: null, error: 'Task not found' };
   if (task.assigned_to !== agentId) {
@@ -551,13 +667,27 @@ export function unclaimTask(
   }
 
   const backStatus: TaskStatus = task.blocked_by.length > 0 ? 'blocked' : 'ready';
-  updateTask(taskId, { assigned_to: null, status: backStatus, started_at: null });
+  let updated: Task | null;
 
   if (reason) {
-    addImplementationNote(taskId, `UNCLAIMED by ${agentId}: ${reason}`, agentId);
+    // Combine status reset + note addition to reduce reads
+    const entry: ImplementationNote = {
+      timestamp: Date.now(),
+      agent: agentId,
+      note: `UNCLAIMED by ${agentId}: ${reason}`,
+    };
+    updated = updateTask(taskId, {
+      assigned_to: null,
+      status: backStatus,
+      started_at: null,
+      implementation_notes: [...task.implementation_notes, entry],
+    });
+    logEvent({ task_id: taskId, agent_id: agentId, event_type: 'note_added', payload: { note: entry.note } });
+  } else {
+    updated = updateTask(taskId, { assigned_to: null, status: backStatus, started_at: null });
   }
 
-  db.run(`UPDATE agents SET current_task = NULL WHERE id = ?`, [agentId]);
+  s.releaseAgent.run(agentId);
   logEvent({
     task_id: taskId,
     agent_id: agentId,
@@ -565,35 +695,46 @@ export function unclaimTask(
     payload: { reason: reason ?? '' },
   });
 
-  return { task: getTask(taskId) };
+  return { task: updated };
 }
 
 export function heartbeat(agentId: string, taskId?: string): void {
-  const db = getDb();
-  db.run(
-    `INSERT INTO agents (id, first_seen, last_seen, current_task)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET last_seen = excluded.last_seen`,
-    [agentId, Date.now(), Date.now(), taskId ?? null]
-  );
+  const now = Date.now();
+  stmts().heartbeat.run(agentId, now, now, taskId ?? null);
 }
 
 export function listAgents(): { id: string; first_seen: number; last_seen: number; current_task: string | null }[] {
-  const db = getDb();
+  const db = stmts().db;
   return db
     .query('SELECT * FROM agents ORDER BY last_seen DESC')
     .all() as { id: string; first_seen: number; last_seen: number; current_task: string | null }[];
 }
 
 export function getNextTask(agentId?: string): Task | null {
-  const tasks = listTasks({ status: 'ready' });
-  // Prefer tasks already assigned to this agent
+  const db = stmts().db;
+
+  // Try agent's own assigned ready task first (single row fetch)
   if (agentId) {
-    const mine = tasks.find((t) => t.assigned_to === agentId);
-    if (mine) return mine;
+    const mine = db.query(
+      `SELECT * FROM tasks WHERE status = 'ready' AND assigned_to = ?
+       ORDER BY ${PRIORITY_ORDER}, created_at ASC LIMIT 1`
+    ).get(agentId) as TaskRow | null;
+    if (mine) return parseTask(mine);
   }
+
   // Highest priority unassigned ready task
-  return tasks.find((t) => t.assigned_to === null) ?? tasks[0] ?? null;
+  const unassigned = db.query(
+    `SELECT * FROM tasks WHERE status = 'ready' AND assigned_to IS NULL
+     ORDER BY ${PRIORITY_ORDER}, created_at ASC LIMIT 1`
+  ).get() as TaskRow | null;
+  if (unassigned) return parseTask(unassigned);
+
+  // Fallback: any ready task
+  const any = db.query(
+    `SELECT * FROM tasks WHERE status = 'ready'
+     ORDER BY ${PRIORITY_ORDER}, created_at ASC LIMIT 1`
+  ).get() as TaskRow | null;
+  return any ? parseTask(any) : null;
 }
 
 export function getStats(): {
@@ -602,32 +743,34 @@ export function getStats(): {
   by_type: Record<string, number>;
   total: number;
 } {
-  const db = getDb();
+  const db = stmts().db;
 
-  const byStatus = db
-    .query('SELECT status, COUNT(*) as count FROM tasks GROUP BY status')
-    .all() as { status: string; count: number }[];
-  const byPriority = db
-    .query('SELECT priority, COUNT(*) as count FROM tasks GROUP BY priority')
-    .all() as { priority: string; count: number }[];
-  const byType = db
-    .query('SELECT type, COUNT(*) as count FROM tasks GROUP BY type')
-    .all() as { type: string; count: number }[];
-  const total = (db.query('SELECT COUNT(*) as count FROM tasks').get() as { count: number }).count;
+  // Single query to get all breakdown data at once
+  const rows = db
+    .query('SELECT status, priority, type, COUNT(*) as count FROM tasks GROUP BY status, priority, type')
+    .all() as { status: string; priority: string; type: string; count: number }[];
 
-  return {
-    by_status: Object.fromEntries(byStatus.map((r) => [r.status, r.count])),
-    by_priority: Object.fromEntries(byPriority.map((r) => [r.priority, r.count])),
-    by_type: Object.fromEntries(byType.map((r) => [r.type, r.count])),
-    total,
-  };
+  const by_status: Record<string, number> = {};
+  const by_priority: Record<string, number> = {};
+  const by_type: Record<string, number> = {};
+  let total = 0;
+
+  for (const row of rows) {
+    by_status[row.status] = (by_status[row.status] ?? 0) + row.count;
+    by_priority[row.priority] = (by_priority[row.priority] ?? 0) + row.count;
+    by_type[row.type] = (by_type[row.type] ?? 0) + row.count;
+    total += row.count;
+  }
+
+  return { by_status, by_priority, by_type, total };
 }
 
 export function deleteTask(
   taskId: string,
   agentId?: string
 ): { success: boolean; error?: string } {
-  const db = getDb();
+  const s = stmts();
+  const db = s.db;
   const task = getTask(taskId);
 
   if (!task) {
@@ -635,50 +778,64 @@ export function deleteTask(
   }
 
   // Check if this task has subtasks
-  const subtasks = listTasks({ parent_id: taskId });
-  if (subtasks.length > 0) {
+  const subtaskCount = (s.subtaskCount.get(taskId) as { count: number }).count;
+  if (subtaskCount > 0) {
     return {
       success: false,
-      error: `Cannot delete ${taskId} - it has ${subtasks.length} subtask(s). Delete subtasks first.`,
+      error: `Cannot delete ${taskId} - it has ${subtaskCount} subtask(s). Delete subtasks first.`,
     };
   }
 
-  // Log the delete event BEFORE deleting the task (events reference task_id)
-  logEvent({
-    task_id: taskId,
-    agent_id: agentId,
-    event_type: 'deleted',
-    payload: {},
+  // Wrap entire delete + cleanup in a transaction for atomicity
+  const doDelete = db.transaction(() => {
+    // Log the delete event BEFORE deleting the task (events reference task_id)
+    logEvent({
+      task_id: taskId,
+      agent_id: agentId,
+      event_type: 'deleted',
+      payload: {},
+    });
+
+    // Remove this task from other tasks' blocks/blocked_by arrays using SQL LIKE filter
+    const blocksRows = db
+      .query(`SELECT id, blocks FROM tasks WHERE blocks LIKE '%' || ? || '%' AND id != ?`)
+      .all(taskId, taskId) as { id: string; blocks: string }[];
+    for (const row of blocksRows) {
+      const blocks = (JSON.parse(row.blocks) as string[]).filter(id => id !== taskId);
+      db.run(
+        `UPDATE tasks SET blocks = ?, updated_at = ? WHERE id = ?`,
+        [JSON.stringify(blocks), Date.now(), row.id]
+      );
+    }
+
+    const blockedByRows = db
+      .query(`SELECT id, blocked_by FROM tasks WHERE blocked_by LIKE '%' || ? || '%' AND id != ?`)
+      .all(taskId, taskId) as { id: string; blocked_by: string }[];
+    for (const row of blockedByRows) {
+      const remaining = (JSON.parse(row.blocked_by) as string[]).filter(id => id !== taskId);
+      const newStatus: TaskStatus = remaining.length === 0 ? 'ready' : 'blocked';
+      db.run(
+        `UPDATE tasks SET blocked_by = ?, status = ?, updated_at = ? WHERE id = ?`,
+        [JSON.stringify(remaining), newStatus, Date.now(), row.id]
+      );
+    }
+
+    // Clear parent references with direct SQL
+    db.run(
+      `UPDATE tasks SET parent_id = NULL, updated_at = ? WHERE parent_id = ?`,
+      [Date.now(), taskId]
+    );
+
+    // Delete associated events
+    db.run('DELETE FROM events WHERE task_id = ?', [taskId]);
+
+    // Clear any agent's current_task if pointing to this task
+    db.run('UPDATE agents SET current_task = NULL WHERE current_task = ?', [taskId]);
+
+    // Delete the task
+    db.run('DELETE FROM tasks WHERE id = ?', [taskId]);
   });
 
-  // Remove this task from other tasks' blocks/blocked_by arrays
-  const allTasks = listTasks();
-  for (const t of allTasks) {
-    if (t.blocks.includes(taskId)) {
-      updateTask(t.id, { blocks: t.blocks.filter(id => id !== taskId) });
-    }
-    if (t.blocked_by.includes(taskId)) {
-      const remaining = t.blocked_by.filter(id => id !== taskId);
-      updateTask(t.id, {
-        blocked_by: remaining,
-        status: remaining.length === 0 ? 'ready' : 'blocked',
-      });
-    }
-    // Remove parent reference if this task was a parent
-    if (t.parent_id === taskId) {
-      updateTask(t.id, { parent_id: null });
-    }
-  }
-
-  // Delete associated events first (before deleting the task)
-  db.run('DELETE FROM events WHERE task_id = ?', [taskId]);
-
-  // Clear any agent's current_task if pointing to this task
-  db.run('UPDATE agents SET current_task = NULL WHERE current_task = ?', [taskId]);
-
-  // Delete the task
-  db.run('DELETE FROM tasks WHERE id = ?', [taskId]);
-
+  doDelete();
   return { success: true };
 }
-

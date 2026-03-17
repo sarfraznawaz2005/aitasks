@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { requireInitialized } from '../db/index.js';
-import { deleteTask, listTasks } from '../models/task.js';
+import { deleteTask, getAllTaskIds } from '../models/task.js';
 import { expandPattern } from '../utils/pattern.js';
 import { jsonOut, isJsonMode, exitError } from './shared.js';
 
@@ -16,7 +16,7 @@ export const deleteCommand = new Command('delete')
     const agent = opts.agent || process.env.AITASKS_AGENT_ID;
 
     // Get all existing task IDs for pattern expansion
-    const allTaskIds = listTasks().map(t => t.id);
+    const allTaskIds = getAllTaskIds();
     const resolvedIds = expandPatterns(taskIds.map(id => id.toUpperCase()), allTaskIds);
 
     if (resolvedIds.length === 0) {
