@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import type { Task, TaskStatus, TaskPriority } from '../types.js';
 import { STATUS_ICON } from './colors.js';
 import { formatDate, formatTime, terminalWidth } from '../utils/format.js';
-import { updateTask, completeTask } from '../models/task.js';
+import { updateTask, completeTask, checkCriterion, getTask } from '../models/task.js';
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -466,7 +466,20 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       const newStatus = statusMap[input];
       if (newStatus && selectedTask) {
         if (newStatus === 'done') {
-          const { error } = completeTask(selectedTask.id);
+          let { error, unchecked } = completeTask(selectedTask.id);
+          if (error && unchecked && unchecked.length > 0) {
+            const task = getTask(selectedTask.id);
+            if (task) {
+              for (let i = 0; i < task.acceptance_criteria.length; i++) {
+                const alreadyChecked = task.test_results.some(r => r.index === i);
+                if (!alreadyChecked) {
+                  checkCriterion(selectedTask.id, i, 'auto-verified (moved to Done on board)', 'human');
+                }
+              }
+              const retry = completeTask(selectedTask.id);
+              error = retry.error;
+            }
+          }
           if (error) {
             setMoveError(error.split('\n')[0] ?? error);
             setMode('normal');
