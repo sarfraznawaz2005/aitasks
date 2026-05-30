@@ -1,4 +1,4 @@
-[![DOWNLOADS](https://img.shields.io/npm/dt/diffwatch?label=npm&colorA=151B23&colorB=81F096&style=for-the-badge)](https://www.npmjs.com/package/aitasks)
+[![DOWNLOADS](https://img.shields.io/npm/dt/aitasks?label=npm&colorA=151B23&colorB=81F096&style=for-the-badge)](https://www.npmjs.com/package/aitasks)
 
 # aitasks
 
