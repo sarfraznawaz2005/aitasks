@@ -650,9 +650,10 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     return bar;
   })();
 
+  const doneCount = tasks.filter(t => t.status === 'done').length;
   const taskCountLabel = searchQuery
     ? `${filteredTasks.length} of ${tasks.length}`
-    : `${tasks.length}`;
+    : `${doneCount}/${tasks.length}`;
 
   // Rendered inline — see HeaderHint below
   const searchMode = mode === 'search';
