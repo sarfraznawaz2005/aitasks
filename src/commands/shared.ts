@@ -47,3 +47,16 @@ export function exitError(msg: string, json: boolean): never {
   }
   process.exit(1);
 }
+
+/**
+ * Read the package version from package.json. Single source of truth for the
+ * version stamped into generated agent instructions (used by init and onboard).
+ */
+export function getVersion(): string {
+  try {
+    const pkg = require('../../package.json') as { version: string };
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}

@@ -110,7 +110,13 @@ aitasks block TASK-001 --on TASK-002,TASK-003
 View dependencies:
 \`\`\`bash
 aitasks deps TASK-001    # Shows what this task is blocked by and what it blocks
+aitasks show TASK-001    # Also lists "Blocked by" / "Blocks" for a single task
 \`\`\`
+
+When a prerequisite is marked \`done\`, its dependents are **auto-unblocked**: any task
+whose last blocker just completed moves to \`ready\` automatically (no manual promotion
+needed). You can then \`aitasks claim\` it directly. To override a status by hand, use
+\`aitasks update <id> --status ready\`.
 
 ---
 
@@ -229,10 +235,12 @@ must be spawned and must approve the task in this same session.
 \`\`\`
 aitasks next [--claim] [--agent <id>]       Find best task (optionally auto-claim/start)
 aitasks list [--status <s>] [--json]        List tasks
+aitasks board                               Live kanban board (visual TUI)
 aitasks show <id>                           Full task detail (includes time tracking)
 aitasks search <query>                      Search titles, descriptions, notes
 aitasks deps <id>                           Show dependency tree
 aitasks create --title <t> --desc <d> --ac <c> [--ac <c> ...] --agent <id>   Create a task
+aitasks update <id> [--status|--priority|--title|--desc|--ac|--type]   Update task fields
 aitasks claim <id...> --agent <id>          Claim task(s) - supports patterns like TASK-0*
 aitasks start <id...> --agent <id>          Begin work on task(s)
 aitasks note <id> <text> --agent <id>       Add implementation note
@@ -247,6 +255,7 @@ aitasks undo <id>                           Undo last action on task
 aitasks delete <id...>                      Delete task(s) - no claim required
 aitasks log <id>                            Full event history
 aitasks agents                              List active agents
+aitasks heartbeat [<id>] --agent <id>       Keep-alive: refresh agent last-seen
 aitasks export --format json                Export all tasks
 \`\`\`
 

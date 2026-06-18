@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { findProjectRoot } from '../utils/project-root.js';
 import { createFreshDb, setReviewRequired } from '../db/index.js';
 import { injectOrCreateAgentFile } from '../utils/agent-file.js';
+import { getVersion } from './shared.js';
 
 export const initCommand = new Command('init')
   .description('Initialize AITasks in the current project')
@@ -88,14 +89,4 @@ function printAgentFileResult(result: { filePath: string; action: string }) {
       break;
   }
   console.log('');
-}
-
-function getVersion(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require('../../package.json') as { version: string };
-    return pkg.version;
-  } catch {
-    return '1.0.0';
-  }
 }

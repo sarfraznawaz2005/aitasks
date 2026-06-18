@@ -4,8 +4,9 @@ import { getAgentInstructions } from '../utils/instructions.js';
 import { appendToSpecificFile, injectOrCreateAgentFile } from '../utils/agent-file.js';
 import { findProjectRoot } from '../utils/project-root.js';
 import { isInitialized, getReviewRequired } from '../db/index.js';
+import { getVersion } from './shared.js';
 
-const VERSION = '1.0.0';
+const VERSION = getVersion();
 
 export const onboardCommand = new Command('onboard')
   .description('Print or inject agent protocol instructions')
