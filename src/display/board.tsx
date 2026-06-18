@@ -651,9 +651,11 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   })();
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
+  const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
   const taskCountLabel = searchQuery
-    ? `${filteredTasks.length} of ${tasks.length}`
-    : `${doneCount}/${tasks.length}`;
+    ? `${filteredTasks.length}/${tasks.length}`
+    : `${doneCount}/${tasks.length} ${pct}%`;
+  const hintGap = leftInner < 56 ? '  ' : '   ';
 
   // Rendered inline — see HeaderHint below
   const searchMode = mode === 'search';
@@ -671,27 +673,22 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           marginRight={1}
         >
           {/* Pane header */}
-          <Box paddingLeft={1}>
-            <Text bold color="white">Tasks  </Text>
-            <Text color="#AAAAAA">({taskCountLabel})</Text>
-            <Text dimColor>    </Text>
+          <Box paddingX={1} justifyContent="space-between">
+            <Box>
+              <Text bold color="white">Tasks </Text>
+              <Text color="#AAAAAA">({taskCountLabel})</Text>
+            </Box>
             {searchMode ? (
-              <>
-                <Text dimColor>type to filter  ·  </Text>
-                <Text color="cyan">Enter</Text>
-                <Text dimColor> done  ·  </Text>
-                <Text color="cyan">Esc</Text>
-                <Text dimColor> clear</Text>
-              </>
+              <Box>
+                <Text color="cyan">↵</Text><Text dimColor>done{hintGap}</Text>
+                <Text color="cyan">esc</Text><Text dimColor> clear</Text>
+              </Box>
             ) : (
-              <>
-                <Text color="cyan">s</Text>
-                <Text dimColor> search  ·  </Text>
-                <Text color="cyan">m</Text>
-                <Text dimColor> status  ·  </Text>
-                <Text color="cyan">q</Text>
-                <Text dimColor> quit</Text>
-              </>
+              <Box>
+                <Text color="cyan">s</Text><Text dimColor>earch{hintGap}</Text>
+                <Text color="cyan">m</Text><Text dimColor>ove{hintGap}</Text>
+                <Text color="cyan">q</Text><Text dimColor>uit</Text>
+              </Box>
             )}
           </Box>
 
