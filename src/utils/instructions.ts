@@ -102,6 +102,18 @@ Creating subtasks:
 aitasks create --title "Write unit tests for auth" --desc "Add unit tests covering all auth edge cases" --ac "All tests pass" --ac "Coverage ≥ 90%" --parent TASK-001 --priority high --type chore --agent $AITASKS_AGENT_ID
 \`\`\`
 
+Editing acceptance criteria (if the requirements change or were worded wrong):
+\`\`\`bash
+aitasks update TASK-001 --ac "A brand-new criterion to append"       # add one
+aitasks update TASK-001 --set-ac 1="Returns 404 with a JSON error body"  # fix criterion #1 in place
+aitasks update TASK-001 --remove-ac 2                                # delete criterion #2
+aitasks update TASK-001 --replace-ac $'first\\nsecond\\nthird'        # replace the whole list
+\`\`\`
+Indices are 0-based (matching \`aitasks show\` and \`aitasks check\`). Use exactly one of these
+flags per call. \`--ac\` only APPENDS — re-passing existing criteria duplicates them; use
+\`--set-ac\` to correct one criterion or \`--replace-ac\` to rewrite all of them. After
+\`--set-ac\`, re-run \`aitasks check\` for that index since editing the wording clears its prior verification.
+
 If you discover your task is blocked by something:
 \`\`\`bash
 aitasks block TASK-001 --on TASK-002,TASK-003
@@ -240,7 +252,11 @@ aitasks show <id>                           Full task detail (includes time trac
 aitasks search <query>                      Search titles, descriptions, notes
 aitasks deps <id>                           Show dependency tree
 aitasks create --title <t> --desc <d> --ac <c> [--ac <c> ...] --agent <id>   Create a task
-aitasks update <id> [--status|--priority|--title|--desc|--ac|--type]   Update task fields
+aitasks update <id> [--status|--priority|--title|--desc|--type]        Update task fields
+aitasks update <id> --ac <text>             Append a new acceptance criterion
+aitasks update <id> --set-ac <n>=<text>     Replace a single criterion at index n (0-based)
+aitasks update <id> --remove-ac <n>         Remove a single criterion at index n (0-based)
+aitasks update <id> --replace-ac <list>     Replace ALL criteria (newline-separated)
 aitasks claim <id...> --agent <id>          Claim task(s) - supports patterns like TASK-0*
 aitasks start <id...> --agent <id>          Begin work on task(s)
 aitasks note <id> <text> --agent <id>       Add implementation note

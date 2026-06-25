@@ -67,6 +67,21 @@ export AITASKS_JSON=true
 
 ---
 
+## Global Options
+
+| Option | Description |
+|---|---|
+| `-C, --dir <path>` | Run as if `aitasks` were started in `<path>` instead of the current directory |
+| `--json` | Output machine-readable JSON (available on most commands) |
+| `--version` | Print the installed version |
+| `--help` | Show help for any command, e.g. `aitasks update --help` |
+
+```sh
+aitasks -C /path/to/project board
+```
+
+---
+
 ## Commands
 
 ### Setup
@@ -75,6 +90,7 @@ export AITASKS_JSON=true
 |---|---|
 | `aitasks init` | Initialize a task database in the current project |
 | `aitasks init --with-review` | Initialize with review enforcement (agents cannot mark done without a passing review) |
+| `aitasks init --update` | Refresh the agent instructions block in an existing CLAUDE.md / AGENTS.md / GEMINI.md to the latest version |
 | `aitasks onboard` | Print or inject agent protocol instructions into CLAUDE.md / AGENTS.md |
 
 ### Task Discovery
@@ -82,7 +98,7 @@ export AITASKS_JSON=true
 | Command | Description |
 |---|---|
 | `aitasks list` | List all tasks, sorted by priority |
-| `aitasks list --status ready` | Filter by status (`ready`, `in_progress`, `blocked`, `review`, `done`) |
+| `aitasks list --status ready` | Filter by status (`backlog`, `ready`, `in_progress`, `blocked`, `review`, `done`) |
 | `aitasks next` | Show the highest-priority unblocked ready task |
 | `aitasks next --claim --agent <id>` | Auto-claim and start the best task |
 | `aitasks show <id>` | Full detail on a specific task (includes time tracking) |
@@ -99,6 +115,7 @@ export AITASKS_JSON=true
 | `aitasks start <id...> --agent <id>` | Begin active work on task(s) |
 | `aitasks note <id> <text>` | Add an implementation note |
 | `aitasks check <id> <n> --evidence <text>` | Verify acceptance criterion n |
+| `aitasks update <id>` | Update task fields (title, description, priority, type, status, acceptance criteria) — see [`update` Flags](#update-flags) |
 | `aitasks done <id...> --agent <id>` | Mark task(s) complete (all criteria must be verified; must be in `review` status if enforcement is on) |
 | `aitasks review <id...> --agent <id>` | Submit task(s) for review (moves to `review` status) |
 | `aitasks reject <id> --reason <text>` | Reject a task in review, send it back to `in_progress` with feedback |
@@ -148,6 +165,41 @@ aitasks create \
 
 ---
 
+## `update` Flags
+
+Change any field on an existing task:
+
+```sh
+aitasks update TASK-001 \
+  --title "New title" \         # Replace the title
+  --desc "New description" \    # Replace the description
+  --priority high \             # critical | high | medium | low
+  --type bug \                  # feature | bug | chore | spike
+  --status ready                # Manually override status (use with care)
+```
+
+### Editing acceptance criteria
+
+Criterion indices are **0-based**, matching what `aitasks show` and `aitasks check` display. Use **only one** of these flags per invocation:
+
+| Flag | Effect |
+|---|---|
+| `--ac <text>` | **Append** a new criterion (repeatable). Does *not* replace existing ones — re-passing an existing criterion duplicates it. |
+| `--set-ac <index>=<text>` | Replace just the criterion at `<index>` in place. |
+| `--remove-ac <index>` | Delete the criterion at `<index>`. |
+| `--replace-ac <list>` | Overwrite the **entire** list (newline-separated). |
+
+```sh
+aitasks update TASK-001 --ac "New criterion to append"
+aitasks update TASK-001 --set-ac 1="Returns 404 with a JSON error body"
+aitasks update TASK-001 --remove-ac 2
+aitasks update TASK-001 --replace-ac $'First criterion\nSecond criterion\nThird criterion'
+```
+
+> **Re-verify after editing.** `--set-ac` clears any prior verification of that criterion (since the wording changed), and `--remove-ac` re-indexes the remaining verifications. Run `aitasks check` again for affected criteria before marking the task done.
+
+---
+
 ## Agent Protocol
 
 When you run `aitasks init`, it automatically injects a full agent protocol into `CLAUDE.md`, `AGENTS.md`, or `GEMINI.md` (whichever exists, or creates `AGENTS.md`). This tells the AI agent exactly how to use `aitasks`.
@@ -162,6 +214,14 @@ aitasks onboard --json        # output as JSON string
 ```
 
 The injected instructions automatically adapt to the project's review enforcement setting — if `--with-review` is enabled, agents receive the full review workflow (with `aitasks review`, sub-agent approval, and `aitasks reject`) instead of the standard completion flow.
+
+**Updating after an upgrade:** Re-running `aitasks init` on a project whose agent file already contains instructions leaves them untouched (and prints a hint). To pull the latest protocol after upgrading `aitasks`, run:
+
+```sh
+aitasks init --update
+```
+
+This replaces only the block between the `<!-- aitasks:instructions -->` markers in place — the rest of your `CLAUDE.md` / `AGENTS.md` is preserved.
 
 ---
 

@@ -11,7 +11,7 @@ const CANDIDATE_FILES = ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'];
 
 export interface AgentFileResult {
   filePath: string;
-  action: 'created' | 'appended' | 'skipped';
+  action: 'created' | 'appended' | 'updated' | 'skipped';
 }
 
 export function findExistingAgentFile(projectRoot: string): string | null {
@@ -38,7 +38,7 @@ export function injectOrCreateAgentFile(
       // Replace the existing instructions block with updated ones
       const replaced = replaceInstructionsBlock(content, instructions);
       writeFileSync(existing, replaced, 'utf8');
-      return { filePath: existing, action: 'appended' };
+      return { filePath: existing, action: 'updated' };
     }
     // Append with a blank line separator
     const separator = content.endsWith('\n') ? '\n' : '\n\n';

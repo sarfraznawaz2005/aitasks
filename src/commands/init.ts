@@ -11,6 +11,7 @@ export const initCommand = new Command('init')
   .description('Initialize AITasks in the current project')
   .option('--skip-agent-file', 'Skip injecting agent instructions into CLAUDE.md/AGENTS.md/GEMINI.md')
   .option('--with-review', 'Enforce review gate: agents cannot mark tasks done without a passing review')
+  .option('--update', 'Refresh the agent instructions block in an existing CLAUDE.md/AGENTS.md/GEMINI.md to the latest version')
   .addHelpText('after', `
 Examples:
   $ aitasks init
@@ -22,9 +23,14 @@ Examples:
       marked done. Running this on an existing project also updates the agent
       instructions file with the review workflow.
 
+  $ aitasks init --update
+      Re-inject the latest agent instructions, replacing the existing block
+      between the AITasks markers in place. The rest of the file is left
+      untouched. Use after upgrading aitasks to pull new protocol docs.
+
   $ aitasks init --skip-agent-file
       Initialize without touching any CLAUDE.md / AGENTS.md file.`)
-  .action(async (opts: { skipAgentFile?: boolean; withReview?: boolean }) => {
+  .action(async (opts: { skipAgentFile?: boolean; withReview?: boolean; update?: boolean }) => {
     const root = findProjectRoot();
     const taskieDir = join(root, '.aitasks');
 
@@ -38,8 +44,10 @@ Examples:
       }
 
       if (!opts.skipAgentFile) {
-        // force=true so existing instructions are replaced with review-aware version
-        const result = injectOrCreateAgentFile(root, getVersion(), !!opts.withReview, !!opts.withReview);
+        // force=true so existing instructions are replaced — either to pick up the
+        // review-aware variant (--with-review) or to refresh to the latest (--update).
+        const force = !!opts.withReview || !!opts.update;
+        const result = injectOrCreateAgentFile(root, getVersion(), !!opts.withReview, force);
         printAgentFileResult(result);
       }
       return;
@@ -67,7 +75,7 @@ Examples:
     console.log('');
 
     if (!opts.skipAgentFile) {
-      const result = injectOrCreateAgentFile(root, getVersion(), !!opts.withReview);
+      const result = injectOrCreateAgentFile(root, getVersion(), !!opts.withReview, !!opts.update);
       printAgentFileResult(result);
     }
 
@@ -84,8 +92,12 @@ function printAgentFileResult(result: { filePath: string; action: string }) {
     case 'appended':
       console.log(chalk.green('  ✓') + `  Appended agent instructions to ${chalk.bold(rel)}`);
       break;
+    case 'updated':
+      console.log(chalk.green('  ✓') + `  Updated agent instructions in ${chalk.bold(rel)}`);
+      break;
     case 'skipped':
       console.log(chalk.dim(`  ─  ${rel} already contains AITasks instructions`));
+      console.log(chalk.dim(`     Run \`aitasks init --update\` to refresh them to the latest version.`));
       break;
   }
   console.log('');

@@ -49,6 +49,36 @@ describe('aitasks init', () => {
     expect(count).toBe(1);
   });
 
+  test('--update refreshes the instructions block in place, preserving other content', () => {
+    const agentsPath = join(projectDir, 'AGENTS.md');
+
+    // Simulate a stale instructions block and surrounding user content.
+    const original = readFileSync(agentsPath, 'utf8');
+    const tampered =
+      '# My Project\n\nExisting notes.\n\n' +
+      original.replace('## AITasks — Agent Task Protocol', '## AITasks — STALE PROTOCOL') +
+      '\n\n## Footer kept by user\n';
+    const { writeFileSync } = require('fs');
+    writeFileSync(agentsPath, tampered);
+
+    const result = runCli(['init', '--update'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Updated agent instructions');
+
+    const updated = readFileSync(agentsPath, 'utf8');
+    // Surrounding content survives, stale block is replaced, no duplication.
+    expect(updated).toContain('# My Project');
+    expect(updated).toContain('## Footer kept by user');
+    expect(updated).not.toContain('STALE PROTOCOL');
+    expect((updated.match(/<!-- aitasks:instructions -->/g) ?? []).length).toBe(1);
+  });
+
+  test('second init without --update skips and hints at --update', () => {
+    const result = runCli(['init'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('aitasks init --update');
+  });
+
   test('appends to existing CLAUDE.md without overwriting', () => {
     removeProject(projectDir); // fresh dir
     const { mkdtempSync, writeFileSync } = require('fs');
@@ -270,6 +300,90 @@ describe('aitasks check + done', () => {
     runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'AC1'], { cwd: projectDir });
     const result = runCli(['check', 'TASK-001', '0', '--agent', 'agent-a'], { cwd: projectDir });
     expect(result.exitCode).not.toBe(0);
+  });
+});
+
+// ─── update (acceptance criteria) ───────────────────────────────────────────────
+
+describe('aitasks update — acceptance criteria', () => {
+  function criteria(): string[] {
+    const result = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    return JSON.parse(result.stdout).data.acceptance_criteria;
+  }
+
+  test('--ac appends without replacing existing criteria', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First', '--ac', 'Second'], { cwd: projectDir });
+    const result = runCli(['update', 'TASK-001', '--ac', 'Third'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(criteria()).toEqual(['First', 'Second', 'Third']);
+  });
+
+  test('--set-ac replaces a single criterion in place', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First', '--ac', 'Second', '--ac', 'Third'], { cwd: projectDir });
+    const result = runCli(['update', 'TASK-001', '--set-ac', '1=Corrected second'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(criteria()).toEqual(['First', 'Corrected second', 'Third']);
+  });
+
+  test('--set-ac keeps "=" characters in the criterion text', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First'], { cwd: projectDir });
+    runCli(['update', 'TASK-001', '--set-ac', '0=x = y + 1'], { cwd: projectDir });
+    expect(criteria()).toEqual(['x = y + 1']);
+  });
+
+  test('--set-ac clears the prior verification for that criterion', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First', '--ac', 'Second'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '0', '--evidence', 'proof-0', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '1', '--evidence', 'proof-1', '--agent', 'agent-a'], { cwd: projectDir });
+
+    runCli(['update', 'TASK-001', '--set-ac', '0=Reworded first'], { cwd: projectDir });
+
+    // Criterion 0's verification is gone, so done must now fail.
+    const done = runCli(['done', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    expect(done.exitCode).not.toBe(0);
+
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const results = JSON.parse(show.stdout).data.test_results;
+    expect(results.map((r: { index: number }) => r.index)).toEqual([1]);
+  });
+
+  test('--remove-ac deletes a criterion and re-indexes verifications', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First', '--ac', 'Second', '--ac', 'Third'], { cwd: projectDir });
+    runCli(['start', 'TASK-001', '--agent', 'agent-a'], { cwd: projectDir });
+    runCli(['check', 'TASK-001', '2', '--evidence', 'proof-third', '--agent', 'agent-a'], { cwd: projectDir });
+
+    const result = runCli(['update', 'TASK-001', '--remove-ac', '0'], { cwd: projectDir });
+    expect(result.exitCode).toBe(0);
+    expect(criteria()).toEqual(['Second', 'Third']);
+
+    // The verification that pointed at index 2 ("Third") now points at index 1.
+    const show = runCli(['show', 'TASK-001'], { cwd: projectDir, env: { AITASKS_JSON: 'true' } });
+    const results = JSON.parse(show.stdout).data.test_results;
+    expect(results).toHaveLength(1);
+    expect(results[0].index).toBe(1);
+    expect(results[0].criterion).toBe('Third');
+  });
+
+  test('rejects an out-of-range index', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First'], { cwd: projectDir });
+    const result = runCli(['update', 'TASK-001', '--set-ac', '5=Nope'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('out of range');
+  });
+
+  test('rejects --set-ac without an "=" separator', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First'], { cwd: projectDir });
+    const result = runCli(['update', 'TASK-001', '--set-ac', '0 missing separator'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('<index>=<text>');
+  });
+
+  test('rejects combining multiple acceptance-criteria modes', () => {
+    runCli(['create', '--title', 'T', '--desc', 'Task description', '--ac', 'First'], { cwd: projectDir });
+    const result = runCli(['update', 'TASK-001', '--ac', 'New', '--remove-ac', '0'], { cwd: projectDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('only one of');
   });
 });
 
