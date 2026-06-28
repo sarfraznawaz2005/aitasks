@@ -363,8 +363,9 @@ type Mode = 'normal' | 'move' | 'search' | 'delete';
 
 type LeftRow =
   | { kind: 'spacer' }
-  | { kind: 'section'; section: 'in_progress' | 'done'; count: number; total?: number }
+  | { kind: 'section'; section: 'in_progress' | 'done'; count: number }
   | { kind: 'date-sep'; label: string }
+  | { kind: 'divider' }
   | { kind: 'item'; item: TreeItem; itemIdx: number };
 
 const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) => {
@@ -404,7 +405,6 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 
   const leftRows = useMemo((): LeftRow[] => {
     const ipCnt   = items.filter(i => i.section === 'in_progress').length;
-    const ipTotal = items.filter(i => i.section === 'in_progress' || i.section === 'middle').length;
     const doneCnt = items.filter(i => i.section === 'done').length;
     const result: LeftRow[] = [];
     let firstSection = true;
@@ -418,11 +418,15 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           kind: 'section',
           section: item.section as 'in_progress' | 'done',
           count: item.section === 'in_progress' ? ipCnt : doneCnt,
-          total: item.section === 'in_progress' ? ipTotal : undefined,
         });
         firstSection = false;
         prevDateKey = null;
       } else if (item.section !== prevSection) {
+        // The middle section has no header of its own — separate it from the
+        // IN PROGRESS section above with a divider line.
+        if (prevSection === 'in_progress' && item.section === 'middle') {
+          result.push({ kind: 'divider' });
+        }
         prevDateKey = null;
       }
       // Insert a thin separator between root-level tasks on different calendar days
@@ -688,10 +692,9 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
   })();
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
+  const dueCount  = tasks.length - doneCount;
   const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
-  const taskCountLabel = searchQuery
-    ? `${filteredTasks.length}/${tasks.length}`
-    : `${doneCount}/${tasks.length} ${pct}%`;
+  const allDone = tasks.length > 0 && dueCount === 0;
   const hintGap = leftInner < 56 ? '  ' : '   ';
 
   // Rendered inline — see HeaderHint below
@@ -713,7 +716,25 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
           <Box paddingX={1} justifyContent="space-between">
             <Box>
               <Text bold color="white">Tasks </Text>
-              <Text color="#AAAAAA">({taskCountLabel})</Text>
+              {searchQuery ? (
+                <Text color="#AAAAAA">({filteredTasks.length}/{tasks.length})</Text>
+              ) : allDone ? (
+                <>
+                  <Text color="#AAAAAA">(</Text>
+                  <Text color="green">All Done</Text>
+                  <Text color="#AAAAAA">)</Text>
+                </>
+              ) : (
+                <>
+                  <Text color="#AAAAAA">(</Text>
+                  <Text color="white">{dueCount}</Text>
+                  <Text color="#AAAAAA"> / </Text>
+                  <Text color="green">{doneCount}</Text>
+                  <Text color="#AAAAAA"> / </Text>
+                  <Text color="cyan">{tasks.length}</Text>
+                  <Text color="#AAAAAA"> {pct}%)</Text>
+                </>
+              )}
             </Box>
             {searchMode ? (
               <Box>
@@ -746,6 +767,16 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             if (row.kind === 'spacer') {
               return <Box key={`sp-${leftOffset + i}`}><Box flexGrow={1}><Text> </Text></Box>{sb}</Box>;
             }
+            if (row.kind === 'divider') {
+              return (
+                <Box key={`div-${leftOffset + i}`}>
+                  <Box flexGrow={1} paddingLeft={1}>
+                    <Text dimColor>{'╌'.repeat(Math.max(0, leftInner - 2))}</Text>
+                  </Box>
+                  {sb}
+                </Box>
+              );
+            }
             if (row.kind === 'date-sep') {
               const dashW = Math.max(0, Math.floor((leftInner - 2 - row.label.length - 2) / 2));
               const dashes = '╌'.repeat(dashW);
@@ -763,13 +794,11 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
             if (row.kind === 'section') {
               const color = row.section === 'in_progress' ? 'yellow' : 'green';
               const label = row.section === 'in_progress' ? 'IN PROGRESS' : 'DONE';
-              const cnt   = row.total !== undefined && row.total !== row.count
-                ? `${row.count} of ${row.total}` : `${row.count}`;
               return (
                 <Box key={`sec-${row.section}`}>
                   <Box flexGrow={1} paddingLeft={1}>
                     <Text color={color} bold>{label}</Text>
-                    <Text color="#AAAAAA">  ({cnt})</Text>
+                    <Text color="#AAAAAA">  ({row.count})</Text>
                   </Box>
                   {sb}
                 </Box>
