@@ -4,7 +4,7 @@ import chalk from 'chalk';
 import type { Task, TaskStatus, TaskPriority } from '../types.js';
 import { STATUS_ICON } from './colors.js';
 import { formatDate, formatTime, terminalWidth } from '../utils/format.js';
-import { updateTask, completeTask, checkCriterion, getTask } from '../models/task.js';
+import { updateTask, completeTask, checkCriterion, getTask, deleteTask } from '../models/task.js';
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 
@@ -309,6 +309,24 @@ const StatusPicker: React.FC<{ task: Task }> = ({ task }) => (
   </Box>
 );
 
+// ─── Delete confirmation (right pane overlay for `d`) ─────────────────────────
+
+const DeleteConfirm: React.FC<{ task: Task }> = ({ task }) => (
+  <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
+    <Text>Delete <Text bold color="cyan">{task.id}</Text>?</Text>
+    <Text dimColor>{'─'.repeat(36)}</Text>
+    <Box marginTop={1}><Text wrap="truncate">{task.title}</Text></Box>
+    <Box marginTop={1}>
+      <Text color="#FF5C5C">This permanently removes the task — it cannot be undone.</Text>
+    </Box>
+    <Box marginTop={1}>
+      <Text color="cyan">y</Text><Text dimColor> delete  ·  </Text>
+      <Text color="cyan">n</Text><Text dimColor> / </Text>
+      <Text color="cyan">Esc</Text><Text dimColor> cancel</Text>
+    </Box>
+  </Box>
+);
+
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // Simple date key (calendar day) from unix milliseconds
@@ -341,7 +359,7 @@ function wrapText(text: string, maxW: number): string[] {
 
 // ─── Main live tree board ─────────────────────────────────────────────────────
 
-type Mode = 'normal' | 'move' | 'search';
+type Mode = 'normal' | 'move' | 'search' | 'delete';
 
 type LeftRow =
   | { kind: 'spacer' }
@@ -498,6 +516,24 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
       return;
     }
 
+    // ── Delete mode (confirmation) ───────────────────────────────────
+    if (mode === 'delete') {
+      if (key.escape || input === 'n' || input === 'q') { setMode('normal'); return; }
+      if (input === 'y' && selectedTask) {
+        const { error } = deleteTask(selectedTask.id, 'human');
+        if (error) {
+          setMoveError(error.split('\n')[0] ?? error);
+        } else {
+          setMoveError(null);
+          // Keep the selection in range after the row disappears.
+          setSelectedIdx(i => Math.max(0, Math.min(i, items.length - 2)));
+          setTasks(getTasks());
+        }
+        setMode('normal');
+      }
+      return;
+    }
+
     // ── Normal mode ──────────────────────────────────────────────────
     if (input === 'q') exit();
     if (key.escape) { searchQuery ? setSearchQuery('') : exit(); return; }
@@ -505,6 +541,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
     if (key.downArrow) { setMoveError(null); setSelectedIdx(i => Math.min(items.length - 1, i + 1)); }
     if (input === 's') setMode('search');
     if (input === 'm' && selectedTask) setMode('move');
+    if (input === 'd' && selectedTask) { setMoveError(null); setMode('delete'); }
   });
 
   const cols        = stdout.columns ?? 120;
@@ -687,7 +724,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
               <Box>
                 <Text color="cyan">s</Text><Text dimColor>earch{hintGap}</Text>
                 <Text color="cyan">m</Text><Text dimColor>ove{hintGap}</Text>
-                <Text color="cyan">q</Text><Text dimColor>uit</Text>
+                <Text color="cyan">d</Text><Text dimColor>elete</Text>
               </Box>
             )}
           </Box>
@@ -758,6 +795,8 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
         >
           {mode === 'move' && selectedTask
             ? <StatusPicker task={selectedTask} />
+            : mode === 'delete' && selectedTask
+            ? <DeleteConfirm task={selectedTask} />
             : <>
                 {moveError && (
                   <Box paddingX={1} paddingTop={1}>
