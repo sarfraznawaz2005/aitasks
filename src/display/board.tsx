@@ -693,7 +693,6 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
 
   const doneCount = tasks.filter(t => t.status === 'done').length;
   const dueCount  = tasks.length - doneCount;
-  const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
   const allDone = tasks.length > 0 && dueCount === 0;
   const hintGap = leftInner < 56 ? '  ' : '   ';
 
@@ -732,7 +731,7 @@ const TreeBoardComponent: React.FC<{ getTasks: () => Task[] }> = ({ getTasks }) 
                   <Text color="green">{doneCount}</Text>
                   <Text color="#AAAAAA"> / </Text>
                   <Text color="cyan">{tasks.length}</Text>
-                  <Text color="#AAAAAA"> {pct}%)</Text>
+                  <Text color="#AAAAAA">)</Text>
                 </>
               )}
             </Box>
