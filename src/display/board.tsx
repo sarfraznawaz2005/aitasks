@@ -76,6 +76,14 @@ function buildTree(tasks: Task[]): TreeItem[] {
     subs.forEach((sub, i) => { if (!shownIds.has(sub.id)) push(sub, 1, i === subs.length - 1, 'middle', false); });
   }
 
+  // Fallback: surface any non-done task not placed above — e.g. a pending
+  // subtask whose parent is already done or was deleted. Without this it would
+  // vanish from the board yet still count toward the header totals.
+  for (const task of sorted.filter(t => !inProgressIds.has(t.id) && !doneIds.has(t.id))) {
+    if (shownIds.has(task.id)) continue;
+    push(task, 0, false, 'middle', false);
+  }
+
   // ── DONE section ─────────────────────────────────────────────────
   const doneSorted = sorted
     .filter(t => t.status === 'done')
